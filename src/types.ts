@@ -30,14 +30,17 @@ export type ResponseItemReasoning = {
   encrypted_content?: string | null;
 };
 export type ResponseItemOther = { type: string; [key: string]: unknown };
+// NOTE: ResponseItem is a proper discriminated union of ONLY the literal-discriminant
+// members so `if (p.type === "...")` narrows cleanly. ResponseItemOther is intentionally
+// excluded (its `type: string` poisons narrowing). Unknown/other response_item types are
+// still handled at runtime: the `as ResponseItem` cast + non-matching if-chain ignores them.
 export type ResponseItem =
   | ResponseItemMessage
   | ResponseItemFunctionCall
   | ResponseItemFunctionCallOutput
   | ResponseItemCustomToolCall
   | ResponseItemCustomToolCallOutput
-  | ResponseItemReasoning
-  | ResponseItemOther;
+  | ResponseItemReasoning;
 
 export type TurnContextPayload = { turn_id?: string; cwd?: string; model?: string; [key: string]: unknown };
 
