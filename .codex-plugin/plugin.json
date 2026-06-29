@@ -1,0 +1,22 @@
+{
+  "name": "tracing",
+  "version": "0.1.0",
+  "description": "Trace OpenAI Codex sessions to Traceroot.",
+  "author": { "name": "Traceroot", "email": "support@traceroot.ai", "url": "https://traceroot.ai" },
+  "homepage": "https://github.com/traceroot-ai/traceroot-codex-plugin#readme",
+  "repository": "https://github.com/traceroot-ai/traceroot-codex-plugin",
+  "license": "Apache-2.0",
+  "keywords": ["codex", "hooks", "traceroot", "observability", "tracing"],
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "Tracing",
+    "shortDescription": "Trace Codex sessions to Traceroot",
+    "longDescription": "Streams each Codex query as a trace to Traceroot: agent turns, model calls, tool executions, token usage, and subagents — live, one trace per query, linked to your git repo.",
+    "developerName": "Traceroot",
+    "category": "Coding",
+    "capabilities": ["Read"],
+    "websiteURL": "https://traceroot.ai",
+    "brandColor": "#5B8DEF",
+    "screenshots": []
+  }
+}
