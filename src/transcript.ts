@@ -27,8 +27,11 @@ function reasoningText(p: { summary?: unknown[]; content?: unknown }): string | 
   return parts.length ? parts.join("\n") : undefined;
 }
 
-function messageText(content: Array<{ type: string; text?: string }>): string | undefined {
-  const parts = content.filter((c) => typeof c.text === "string").map((c) => c.text as string);
+function messageText(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const parts = (content as Array<{ text?: string }>)
+    .filter((c) => typeof c?.text === "string")
+    .map((c) => c.text as string);
   return parts.length ? parts.join("") : undefined;
 }
 
@@ -50,14 +53,12 @@ export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
   for (const line of lines) {
     const at = ms(line.timestamp);
     if (line.type === "session_meta") {
-      const p = line.payload as SessionMeta & { id: string; cli_version?: string; model_provider?: string };
       sessionMeta = {
         sessionId: (line.payload as { id: string }).id,
         cwd: (line.payload as { cwd?: string }).cwd,
         cliVersion: (line.payload as { cli_version?: string }).cli_version,
         modelProvider: (line.payload as { model_provider?: string }).model_provider ?? undefined,
       };
-      void p;
       continue;
     }
 
@@ -106,6 +107,13 @@ export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
 
     if (line.type === "response_item" && turn) {
       const p = line.payload as ResponseItem;
+      if (p.type === "function_call_output") {
+        // Tool output can arrive after token_count closed the step; never open a new
+        // step for it — just attach to the toolCall recorded in its original step.
+        const tc = toolsByCallId.get(p.call_id);
+        if (tc) { tc.endTime = at; tc.output = p.output; }
+        continue;
+      }
       const s = ensureStep(turn, at);
       if (p.type === "reasoning") {
         s.reasoning = reasoningText(p);
@@ -117,9 +125,6 @@ export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
         const tc: ToolCall = { callId: p.call_id, name: p.name, args, startTime: at };
         s.toolCalls.push(tc);
         toolsByCallId.set(p.call_id, tc);
-      } else if (p.type === "function_call_output") {
-        const tc = toolsByCallId.get(p.call_id);
-        if (tc) { tc.endTime = at; tc.output = p.output; }
       }
       continue;
     }

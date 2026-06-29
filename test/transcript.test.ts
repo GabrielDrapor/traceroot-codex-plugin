@@ -2,9 +2,12 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseSession, readRollout } from "../src/transcript.js";
+import type { RolloutLine } from "../src/types.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = path.join(here, "fixtures", "rollout-basic.jsonl");
+
+const ts = (sec: number): string => new Date(sec * 1000).toISOString();
 
 describe("parseSession", () => {
   it("reconstructs one completed turn with a tool call and usage", async () => {
@@ -32,6 +35,44 @@ describe("parseSession", () => {
     expect(tc.name).toBe("exec_command");
     expect(tc.callId).toBe("call-1");
     expect(tc.output).toContain("a.txt");
+    expect(tc.endTime).toBeGreaterThan(tc.startTime);
+  });
+
+  it("does not throw and leaves text undefined when message content is missing", () => {
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      { timestamp: ts(102), type: "response_item", payload: { type: "message", role: "assistant" } as never },
+      { timestamp: ts(103), type: "event_msg", payload: { type: "token_count", info: { last_token_usage: { input_tokens: 5 } } } },
+      { timestamp: ts(104), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseSession(lines);
+    expect(turns).toHaveLength(1);
+    const t = turns[0]!;
+    expect(t.steps).toHaveLength(1);
+    expect(t.steps[0]!.text).toBeUndefined();
+  });
+
+  it("attaches function_call_output arriving after token_count without spawning an empty step", () => {
+    const lines: RolloutLine[] = [
+      { timestamp: ts(200), type: "session_meta", payload: { id: "sess-2" } },
+      { timestamp: ts(201), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      { timestamp: ts(202), type: "response_item", payload: { type: "function_call", name: "exec", call_id: "c1", arguments: "{}" } },
+      // token_count closes the step BEFORE the tool output arrives (real Codex ordering)
+      { timestamp: ts(203), type: "event_msg", payload: { type: "token_count", info: { last_token_usage: { input_tokens: 7 } } } },
+      { timestamp: ts(204), type: "response_item", payload: { type: "function_call_output", call_id: "c1", output: "done" } },
+      { timestamp: ts(205), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseSession(lines);
+    expect(turns).toHaveLength(1);
+    const t = turns[0]!;
+    // Only the one step holding the function_call — no empty step from the late output.
+    expect(t.steps).toHaveLength(1);
+    const tc = t.steps[0]!.toolCalls[0]!;
+    expect(tc.callId).toBe("c1");
+    expect(tc.output).toBe("done");
     expect(tc.endTime).toBeGreaterThan(tc.startTime);
   });
 });
