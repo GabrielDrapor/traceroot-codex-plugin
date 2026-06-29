@@ -21,13 +21,20 @@ enabled = true
 
 ## Configuration
 
-Configure Traceroot API access via environment variables, project `.codex/traceroot.json`, or global `~/.codex/traceroot.json`. Environment variables take precedence over local config files.
+Configure Traceroot API access via environment variables, project `.codex/traceroot.json`, or global `~/.codex/traceroot.json`. Settings are resolved in this order (highest precedence first):
+
+1. Environment variables
+2. Project `.codex/traceroot.json`
+3. Global `~/.codex/traceroot.json`
+4. Built-in defaults
+
+When the same key is set in both a project and a global `traceroot.json`, the project file wins.
 
 | Setting | Env Var | JSON Key | Default | Required | Notes |
 |---------|---------|----------|---------|----------|-------|
 | **Master enable** | `TRACE_TO_TRACEROOT` | `enabled` | — | Yes | Set to `true` to enable tracing. Plugin also requires `TRACEROOT_API_KEY` to be set. |
-| **API key** | `TRACEROOT_API_KEY` | `api_key` | — | Yes | Obtain from [app.traceroot.ai](https://app.traceroot.ai). The env var `TRACEROOT_CODEX_API_KEY` also works (Codex-scoped). |
-| **Host URL** | `TRACEROOT_HOST_URL` | `host_url` | `https://app.traceroot.ai` | No | Point to your self-hosted Traceroot instance if needed. The env var `TRACEROOT_CODEX_HOST_URL` also works (Codex-scoped). |
+| **API key** | `TRACEROOT_API_KEY` | `api_key` | — | Yes | Obtain from [app.traceroot.ai](https://app.traceroot.ai). The Codex-scoped `TRACEROOT_CODEX_API_KEY` takes precedence over `TRACEROOT_API_KEY` when both are set. |
+| **Host URL** | `TRACEROOT_HOST_URL` | `host_url` | `https://app.traceroot.ai` | No | Point to your self-hosted Traceroot instance if needed. The Codex-scoped `TRACEROOT_CODEX_HOST_URL` takes precedence over `TRACEROOT_HOST_URL` when both are set. |
 | **Max span size** | `TRACEROOT_CODEX_MAX_CHARS` | `max_chars` | `20000` | No | Maximum characters in a span attribute before truncation. |
 | **Debug logging** | `TRACEROOT_CODEX_DEBUG` | `debug` | `false` | No | Set to `true` to see debug output. |
 | **Fail on error** | `TRACEROOT_CODEX_FAIL_ON_ERROR` | `fail_on_error` | `false` | No | Set to `true` to fail a Codex turn if tracing fails. By default, tracing errors never block Codex. |
