@@ -1,0 +1,9 @@
+{"timestamp":"2026-06-23T23:21:32.926Z","type":"session_meta","payload":{"id":"sess-abc","cwd":"/repo","cli_version":"0.140.0","model_provider":"openai"}}
+{"timestamp":"2026-06-23T23:21:32.930Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1","started_at":1782256892}}
+{"timestamp":"2026-06-23T23:21:33.000Z","type":"turn_context","payload":{"turn_id":"turn-1","cwd":"/repo","model":"gpt-5.5"}}
+{"timestamp":"2026-06-23T23:21:33.100Z","type":"event_msg","payload":{"type":"user_message","message":"list the files"}}
+{"timestamp":"2026-06-23T23:21:34.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"I'll run ls."}]}}
+{"timestamp":"2026-06-23T23:21:34.500Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"call-1","arguments":"{\"cmd\":\"ls\"}"}}
+{"timestamp":"2026-06-23T23:21:35.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-1","output":"a.txt\nb.txt"}}
+{"timestamp":"2026-06-23T23:21:36.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"There are two files: a.txt and b.txt."}]}}
+{"timestamp":"2026-06-23T23:21:36.050Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1200,"cached_input_tokens":1000,"output_tokens":40,"reasoning_output_tokens":10,"total_tokens":1240}}}}
