@@ -92,6 +92,8 @@ export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
         cwd: (line.payload as { cwd?: string }).cwd,
         cliVersion: (line.payload as { cli_version?: string }).cli_version,
         modelProvider: (line.payload as { model_provider?: string }).model_provider ?? undefined,
+        threadSource: (line.payload as { thread_source?: string }).thread_source,
+        parentThreadId: (line.payload as { parent_thread_id?: string }).parent_thread_id,
       };
       continue;
     }

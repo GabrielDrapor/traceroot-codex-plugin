@@ -106,6 +106,16 @@ export async function dispatch(
 
   const lines = await readRollout(transcript);
   const { sessionMeta, turns } = parseSession(lines);
+
+  // A subagent session is emitted NESTED under its parent's trace (via the
+  // parent's spawn_agent tool). Codex also fires hooks for the subagent session
+  // itself; emitting here too would duplicate it as a redundant standalone trace.
+  // Skip — the parent owns it.
+  if (sessionMeta.threadSource === "subagent" || sessionMeta.parentThreadId) {
+    debugLog(`subagent session ${sessionMeta.sessionId}; skipping standalone emit (nested under parent)`);
+    return { emitted: 0 };
+  }
+
   const cwd = sessionMeta.cwd ?? hook.cwd ?? process.cwd();
   const git = await getGit(cwd).catch(() => ({}));
   const ctx: EmitCtx = { environment: config.environment, userId: config.userId, git, maxChars: config.maxChars };

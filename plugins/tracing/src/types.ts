@@ -128,4 +128,8 @@ export type SessionMeta = {
   cwd?: string;
   cliVersion?: string;
   modelProvider?: string;
+  // "user" for a top-level session, "subagent" for a spawned child. A subagent
+  // session is emitted nested under its parent's trace, NOT as a standalone trace.
+  threadSource?: string;
+  parentThreadId?: string;
 };

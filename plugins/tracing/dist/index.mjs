@@ -32243,7 +32243,9 @@ function parseSession(lines) {
 				sessionId: line.payload.id,
 				cwd: line.payload.cwd,
 				cliVersion: line.payload.cli_version,
-				modelProvider: line.payload.model_provider ?? void 0
+				modelProvider: line.payload.model_provider ?? void 0,
+				threadSource: line.payload.thread_source,
+				parentThreadId: line.payload.parent_thread_id
 			};
 			continue;
 		}
@@ -32419,6 +32421,10 @@ async function dispatch(hook, config, deps) {
 	const getGit = deps?.getGit ?? getGitContext;
 	const findSubagentFn = deps?.findSubagent ?? findSubagentRollout;
 	const { sessionMeta, turns } = parseSession(await readRollout(transcript));
+	if (sessionMeta.threadSource === "subagent" || sessionMeta.parentThreadId) {
+		debugLog(`subagent session ${sessionMeta.sessionId}; skipping standalone emit (nested under parent)`);
+		return { emitted: 0 };
+	}
 	const git = await getGit(sessionMeta.cwd ?? hook.cwd ?? process.cwd()).catch(() => ({}));
 	const ctx = {
 		environment: config.environment,

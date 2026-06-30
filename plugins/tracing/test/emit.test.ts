@@ -75,4 +75,28 @@ describe("dispatch", () => {
     const r2 = await dispatch({ transcript_path: transcript }, config, deps);
     expect(r2.emitted).toBe(1); // only the AGENT root now
   });
+
+  it("skips standalone emission for a subagent session (it nests under its parent)", async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "tr-sub-"));
+    const transcript = path.join(dir, "rollout.jsonl");
+    // A subagent session: session_meta marks thread_source=subagent + parent_thread_id.
+    const lines = [
+      '{"timestamp":"2026-06-30T00:00:00.000Z","type":"session_meta","payload":{"id":"child-1","thread_source":"subagent","parent_thread_id":"parent-1"}}',
+      '{"timestamp":"2026-06-30T00:00:01.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"ct1"}}',
+      '{"timestamp":"2026-06-30T00:00:02.000Z","type":"turn_context","payload":{"turn_id":"ct1","model":"gpt-5.5"}}',
+      '{"timestamp":"2026-06-30T00:00:03.000Z","type":"response_item","payload":{"type":"function_call","call_id":"x1","name":"exec_command","arguments":"{}"}}',
+      '{"timestamp":"2026-06-30T00:00:04.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"x1","output":"ok"}}',
+      '{"timestamp":"2026-06-30T00:00:05.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"output_tokens":1}}}}',
+      '{"timestamp":"2026-06-30T00:00:06.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"ct1"}}',
+    ].join("\n");
+    await fs.writeFile(transcript, lines);
+    const mem = new InMemorySpanExporter();
+    const deps = {
+      buildTracing: () => ({ ...buildTracingWith(new SimpleSpanProcessor(mem), new PrimedIdGenerator()), shutdown: async () => {} }),
+      getGit: async () => ({}),
+    };
+    const r = await dispatch({ transcript_path: transcript }, config, deps);
+    expect(r.emitted).toBe(0); // suppressed — parent owns the nesting
+    expect(mem.getFinishedSpans()).toHaveLength(0);
+  });
 });
