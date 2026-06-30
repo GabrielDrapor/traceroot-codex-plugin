@@ -152,4 +152,25 @@ describe("dispatch with subagent", () => {
     const uniqueIds = new Set(spanIds);
     expect(spanIds).toHaveLength(uniqueIds.size);
   });
+
+  it("6. fail-soft: a throwing findSubagent does not propagate; parent spans still emit", async () => {
+    const transcript = await copyFixture("rollout-with-subagent.jsonl");
+    const mem = new InMemorySpanExporter();
+
+    // Resolver throws — dispatch must NOT propagate; parent spans must still flush.
+    const r = await dispatch({ transcript_path: transcript }, config, {
+      ...makeTracingDeps(mem),
+      findSubagent: async () => { throw new Error("resolver boom"); },
+    });
+
+    // Only the 3 parent spans emitted (child resolution failed fail-soft).
+    expect(r.emitted).toBe(3);
+    const spans = mem.getFinishedSpans();
+    const ids = spans.map((s) => s.spanContext().spanId);
+    expect(ids).toContain(parentRootId);
+    expect(ids).toContain(parentStepId);
+    expect(ids).toContain(spawnToolId);
+    // No child spans were emitted.
+    expect(ids).not.toContain(childRootId);
+  });
 });

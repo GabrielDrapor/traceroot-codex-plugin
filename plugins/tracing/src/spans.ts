@@ -28,6 +28,11 @@ const str = (v: unknown, max: number): string =>
   truncate(typeof v === "string" ? v : JSON.stringify(v ?? ""), max);
 
 function commonTrace(attrs: Record<string, string | number>, sessionMeta: SessionMeta, ctx: EmitCtx): void {
+  // Child subagent spans intentionally carry the CHILD session id here (sessionMeta is
+  // the child's own SessionMeta). The trace still groups correctly because the backend
+  // keys a trace's session off the ROOT (parent) span, not the children. A future
+  // `overrideSessionId` field on PlanOpts would be the clean way to force the parent's
+  // session id onto child spans if grouping ever needs it — not implemented now.
   attrs["traceroot.trace.session_id"] = sessionMeta.sessionId;
   if (ctx.userId) attrs["traceroot.trace.user_id"] = ctx.userId;
   if (ctx.environment) attrs["traceroot.environment"] = ctx.environment;

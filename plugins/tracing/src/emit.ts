@@ -15,6 +15,11 @@ const STACK_GUARD = 32;
 export type Deps = {
   buildTracing: (c: Config) => Tracing;
   getGit: (cwd: string) => Promise<{ repo?: string; ref?: string }>;
+  /**
+   * Resolve a subagent's child rollout path by thread id.
+   * SHOULD be fail-soft (return undefined rather than throw), but dispatch does
+   * NOT assume it — the per-subagent resolve/read/parse is wrapped in try/catch.
+   */
   findSubagent: (threadId: string) => Promise<string | undefined>;
 };
 
@@ -53,30 +58,34 @@ async function emitTurnTree(
   for (const sub of turn.subagents ?? []) {
     if (!sub.spawnCallId) continue;
     if (visited.has(sub.threadId)) continue; // cycle/diamond guard
+    // Mark BEFORE the try so a failing/cyclic thread is never retried this dispatch.
     visited.add(sub.threadId);
 
-    const childPath = await deps.findSubagent(sub.threadId);
-    if (!childPath) continue; // child rollout not on disk yet — try again next hook
-
-    let childLines;
+    // Fail-open: a throwing resolver/read/parse must NEVER propagate out of dispatch
+    // (that would leave already-emitted parent spans un-marked → re-emit churn next hook).
+    // On any error we log and skip to the next subagent.
     try {
-      childLines = await readRollout(childPath);
-    } catch {
+      const childPath = await deps.findSubagent(sub.threadId);
+      if (!childPath) continue; // child rollout not on disk yet — try again next hook
+
+      const childLines = await readRollout(childPath);
+      const child = parseSession(childLines);
+
+      const childOpts: PlanOpts = {
+        traceId,                                          // SAME trace as parent
+        rootParentSpanId: makeSpanId(parentSeed + sub.spawnCallId), // nest under spawn TOOL span
+        seedPrefix: sub.threadId + ":",                   // unique, stable child span ids
+      };
+
+      for (const childTurn of child.turns) {
+        n += await emitTurnTree(
+          child.sessionMeta, childTurn, ctx, childOpts, visited, depth + 1,
+          tracing, already, emittedIds, deps,
+        );
+      }
+    } catch (err) {
+      debugLog(`subagent ${sub.threadId} resolve/read/parse failed; skipping: ${String(err)}`);
       continue;
-    }
-    const child = parseSession(childLines);
-
-    const childOpts: PlanOpts = {
-      traceId,                                          // SAME trace as parent
-      rootParentSpanId: makeSpanId(parentSeed + sub.spawnCallId), // nest under spawn TOOL span
-      seedPrefix: sub.threadId + ":",                   // unique, stable child span ids
-    };
-
-    for (const childTurn of child.turns) {
-      n += await emitTurnTree(
-        child.sessionMeta, childTurn, ctx, childOpts, visited, depth + 1,
-        tracing, already, emittedIds, deps,
-      );
     }
   }
 

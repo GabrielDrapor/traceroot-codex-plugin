@@ -32245,7 +32245,6 @@ function parseSession(lines) {
 						startTime: at,
 						endTime: at,
 						steps: [],
-						subagentThreadIds: [],
 						subagents: [],
 						completed: false,
 						aborted: false
@@ -32275,7 +32274,6 @@ function parseSession(lines) {
 					break;
 				default:
 					if (turn && typeof p.new_thread_id === "string") {
-						turn.subagentThreadIds.push(p.new_thread_id);
 						const ref = { threadId: p.new_thread_id };
 						if (typeof p.call_id === "string") ref.spawnCallId = p.call_id;
 						(turn.subagents ??= []).push(ref);
@@ -32354,21 +32352,20 @@ async function emitTurnTree(sessionMeta, turn, ctx, opts, visited, depth, tracin
 		if (!sub.spawnCallId) continue;
 		if (visited.has(sub.threadId)) continue;
 		visited.add(sub.threadId);
-		const childPath = await deps.findSubagent(sub.threadId);
-		if (!childPath) continue;
-		let childLines;
 		try {
-			childLines = await readRollout(childPath);
-		} catch {
+			const childPath = await deps.findSubagent(sub.threadId);
+			if (!childPath) continue;
+			const child = parseSession(await readRollout(childPath));
+			const childOpts = {
+				traceId,
+				rootParentSpanId: makeSpanId(parentSeed + sub.spawnCallId),
+				seedPrefix: sub.threadId + ":"
+			};
+			for (const childTurn of child.turns) n += await emitTurnTree(child.sessionMeta, childTurn, ctx, childOpts, visited, depth + 1, tracing, already, emittedIds, deps);
+		} catch (err) {
+			debugLog(`subagent ${sub.threadId} resolve/read/parse failed; skipping: ${String(err)}`);
 			continue;
 		}
-		const child = parseSession(childLines);
-		const childOpts = {
-			traceId,
-			rootParentSpanId: makeSpanId(parentSeed + sub.spawnCallId),
-			seedPrefix: sub.threadId + ":"
-		};
-		for (const childTurn of child.turns) n += await emitTurnTree(child.sessionMeta, childTurn, ctx, childOpts, visited, depth + 1, tracing, already, emittedIds, deps);
 	}
 	return n;
 }
