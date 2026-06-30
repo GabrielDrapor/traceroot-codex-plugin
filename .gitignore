@@ -1,0 +1,13 @@
+node_modules
+*.log
+.DS_Store
+.superpowers/
+.env
+.env.*
+coverage/
+.idea/
+.vscode/
+*.tgz
+
+# NOTE: plugins/tracing/dist/ is intentionally committed (Codex runs the bundle
+# directly — no build step on install). Do not ignore it.
