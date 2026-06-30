@@ -32152,7 +32152,7 @@ function emitSpan(tracing, s) {
 * To bound cost we scan only the newest ~3 day-directories under
 * sessions/YYYY/MM/DD rather than the full tree.
 */
-async function findSubagentRollout(threadId, codexHome) {
+async function locateSubagentRollout(threadId, codexHome) {
 	try {
 		const home = codexHome ?? process.env["CODEX_HOME"] ?? path.join(os$2.homedir(), ".codex");
 		const dayDirs = await collectRecentDayDirs(path.join(home, "sessions"), 3);
@@ -32252,7 +32252,7 @@ function parseSpawnAgentId(output) {
 	const id = obj?.agent_id;
 	return typeof id === "string" && id ? id : void 0;
 }
-function parseSession(lines) {
+function parseRollout(lines) {
 	let sessionMeta = { sessionId: "" };
 	const turns = [];
 	let turn;
@@ -32435,7 +32435,7 @@ async function emitTurnTree(sessionMeta, turn, ctx, opts, visited, depth, tracin
 			const childPath = await findSubagent(sub.threadId);
 			debugLog(`subagent ${sub.threadId} spawnCall=${sub.spawnCallId}: childPath=${childPath ?? "NOT FOUND"}`);
 			if (!childPath) continue;
-			const child = parseSession(await readRollout(childPath));
+			const child = parseRollout(await readRollout(childPath));
 			debugLog(`subagent ${sub.threadId}: parsed ${child.turns.length} turn(s), session=${child.sessionMeta.sessionId}`);
 			const childOpts = {
 				traceId,
@@ -32458,8 +32458,8 @@ async function dispatch(hook, config, deps) {
 	}
 	const buildTracingFn = deps?.buildTracing ?? buildTracing;
 	const getGit = deps?.getGit ?? getGitContext;
-	const findSubagentFn = deps?.findSubagent ?? findSubagentRollout;
-	const { sessionMeta, turns } = parseSession(await readRollout(transcript));
+	const findSubagentFn = deps?.findSubagent ?? locateSubagentRollout;
+	const { sessionMeta, turns } = parseRollout(await readRollout(transcript));
 	if (sessionMeta.threadSource === "subagent" || sessionMeta.parentThreadId) {
 		debugLog(`subagent session ${sessionMeta.sessionId}; skipping standalone emit (nested under parent)`);
 		return { emitted: 0 };

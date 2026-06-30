@@ -10,7 +10,7 @@ import * as path from "node:path";
  * To bound cost we scan only the newest ~3 day-directories under
  * sessions/YYYY/MM/DD rather than the full tree.
  */
-export async function findSubagentRollout(
+export async function locateSubagentRollout(
   threadId: string,
   codexHome?: string,
 ): Promise<string | undefined> {

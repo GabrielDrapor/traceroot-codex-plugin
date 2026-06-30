@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parseSession, readRollout } from "../src/transcript.js";
+import { parseRollout, readRollout } from "../src/transcript.js";
 import type { RolloutLine } from "../src/types.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -10,10 +10,10 @@ const toolDetailFixture = path.join(here, "fixtures", "rollout-tool-detail.jsonl
 
 const ts = (sec: number): string => new Date(sec * 1000).toISOString();
 
-describe("parseSession", () => {
+describe("parseRollout", () => {
   it("reconstructs one completed turn with a tool call and usage", async () => {
     const lines = await readRollout(fixture);
-    const { sessionMeta, turns } = parseSession(lines);
+    const { sessionMeta, turns } = parseRollout(lines);
 
     expect(sessionMeta.sessionId).toBe("sess-abc");
     expect(turns).toHaveLength(1);
@@ -48,7 +48,7 @@ describe("parseSession", () => {
       { timestamp: ts(104), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
     ];
 
-    const { turns } = parseSession(lines);
+    const { turns } = parseRollout(lines);
     expect(turns).toHaveLength(1);
     const t = turns[0]!;
     expect(t.steps).toHaveLength(1);
@@ -57,7 +57,7 @@ describe("parseSession", () => {
 
   it("enriches tool calls from *_end event_msg events", async () => {
     const lines = await readRollout(toolDetailFixture);
-    const { turns } = parseSession(lines);
+    const { turns } = parseRollout(lines);
     expect(turns).toHaveLength(1);
     const t = turns[0]!;
     expect(t.steps).toHaveLength(1);
@@ -94,7 +94,7 @@ describe("parseSession", () => {
       { timestamp: ts(205), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
     ];
 
-    const { turns } = parseSession(lines);
+    const { turns } = parseRollout(lines);
     expect(turns).toHaveLength(1);
     const t = turns[0]!;
     // Only the one step holding the function_call — no empty step from the late output.
@@ -106,7 +106,7 @@ describe("parseSession", () => {
   });
 });
 
-describe("parseSession custom_tool_call (apply_patch)", () => {
+describe("parseRollout custom_tool_call (apply_patch)", () => {
   it("captures apply_patch (custom_tool_call) as a tool with patch enrichment", () => {
     const patch = "*** Begin Patch\n*** Update File: calc.py\n@@\n-    return a-b\n+    return a+b\n*** End Patch\n";
     const lines: RolloutLine[] = [
@@ -120,7 +120,7 @@ describe("parseSession custom_tool_call (apply_patch)", () => {
       { timestamp: ts(7), type: "event_msg", payload: { type: "token_count", info: { last_token_usage: { input_tokens: 100, output_tokens: 10 } } } },
       { timestamp: ts(8), type: "event_msg", payload: { type: "task_complete", turn_id: "t1" } },
     ];
-    const { turns } = parseSession(lines);
+    const { turns } = parseRollout(lines);
     const tools = turns[0]!.steps.flatMap((s) => s.toolCalls);
     expect(tools).toHaveLength(1);
     const tc = tools[0]!;
@@ -133,7 +133,7 @@ describe("parseSession custom_tool_call (apply_patch)", () => {
   });
 });
 
-describe("parseSession spawn_agent (Codex multi-agent v1)", () => {
+describe("parseRollout spawn_agent (Codex multi-agent v1)", () => {
   it("records a subagent ref from spawn_agent + its function_call_output agent_id", () => {
     const lines: RolloutLine[] = [
       { timestamp: ts(0), type: "session_meta", payload: { id: "parent" } },
@@ -144,7 +144,7 @@ describe("parseSession spawn_agent (Codex multi-agent v1)", () => {
       { timestamp: ts(5), type: "event_msg", payload: { type: "token_count", info: { last_token_usage: { input_tokens: 50, output_tokens: 5 } } } },
       { timestamp: ts(6), type: "event_msg", payload: { type: "task_complete", turn_id: "t1" } },
     ];
-    const { turns } = parseSession(lines);
+    const { turns } = parseRollout(lines);
     const turn = turns[0]!;
     // spawn_agent is still a TOOL call (so it gets its own span)...
     const spawnTool = turn.steps.flatMap((s) => s.toolCalls).find((t) => t.name === "spawn_agent");

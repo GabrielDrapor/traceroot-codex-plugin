@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { findSubagentRollout } from "../src/subagents.js";
+import { locateSubagentRollout } from "../src/subagents.js";
 
 let tmpDir: string;
 afterEach(async () => {
@@ -14,7 +14,7 @@ async function makeTmpCodexHome(): Promise<string> {
   return tmpDir;
 }
 
-describe("findSubagentRollout", () => {
+describe("locateSubagentRollout", () => {
   it("returns the rollout path when the file exists under sessions/YYYY/MM/DD/", async () => {
     const home = await makeTmpCodexHome();
     const dayDir = path.join(home, "sessions", "2026", "06", "30");
@@ -22,7 +22,7 @@ describe("findSubagentRollout", () => {
     const filePath = path.join(dayDir, "rollout-1782294000000-child-thread-1.jsonl");
     await fs.writeFile(filePath, "");
 
-    const result = await findSubagentRollout("child-thread-1", home);
+    const result = await locateSubagentRollout("child-thread-1", home);
     expect(result).toBe(filePath);
   });
 
@@ -32,14 +32,14 @@ describe("findSubagentRollout", () => {
     await fs.mkdir(dayDir, { recursive: true });
     await fs.writeFile(path.join(dayDir, "rollout-1782294000000-other-thread.jsonl"), "");
 
-    const result = await findSubagentRollout("child-thread-1", home);
+    const result = await locateSubagentRollout("child-thread-1", home);
     expect(result).toBeUndefined();
   });
 
   it("returns undefined and does not throw when the sessions directory does not exist", async () => {
     const home = await makeTmpCodexHome();
     // No sessions/ directory created
-    const result = await findSubagentRollout("any-thread", home);
+    const result = await locateSubagentRollout("any-thread", home);
     expect(result).toBeUndefined();
   });
 
@@ -53,7 +53,7 @@ describe("findSubagentRollout", () => {
     const targetPath = path.join(newerDir, "rollout-1782294001-target-thread.jsonl");
     await fs.writeFile(targetPath, "");
 
-    const result = await findSubagentRollout("target-thread", home);
+    const result = await locateSubagentRollout("target-thread", home);
     expect(result).toBe(targetPath);
   });
 });

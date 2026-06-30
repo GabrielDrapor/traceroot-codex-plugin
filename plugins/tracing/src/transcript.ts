@@ -66,7 +66,7 @@ function parseSpawnAgentId(output: unknown): string | undefined {
   return typeof id === "string" && id ? id : undefined;
 }
 
-export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; turns: Turn[] } {
+export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; turns: Turn[] } {
   let sessionMeta: SessionMeta = { sessionId: "" };
   const turns: Turn[] = [];
   let turn: Turn | undefined;

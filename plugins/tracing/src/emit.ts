@@ -4,8 +4,8 @@ import { getGitContext } from "./git.js";
 import { makeSpanId, makeTraceId } from "./ids.js";
 import { loadEmittedSpanIds, markSpanEmitted } from "./sidecar.js";
 import { emitSpan, planTurnSpans, type EmitCtx, type PlanOpts } from "./spans.js";
-import { findSubagentRollout } from "./subagents.js";
-import { parseSession, readRollout } from "./transcript.js";
+import { locateSubagentRollout } from "./subagents.js";
+import { parseRollout, readRollout } from "./transcript.js";
 import type { HookInput, SessionMeta, Turn } from "./types.js";
 import { debugLog } from "./util.js";
 
@@ -76,7 +76,7 @@ async function emitTurnTree(
       if (!childPath) continue; // child rollout not on disk yet — try again next hook
 
       const childLines = await readRollout(childPath);
-      const child = parseSession(childLines);
+      const child = parseRollout(childLines);
       debugLog(`subagent ${sub.threadId}: parsed ${child.turns.length} turn(s), session=${child.sessionMeta.sessionId}`);
 
       const childOpts: PlanOpts = {
@@ -108,10 +108,10 @@ export async function dispatch(
 
   const buildTracingFn = deps?.buildTracing ?? defaultBuildTracing;
   const getGit = deps?.getGit ?? getGitContext;
-  const findSubagentFn = deps?.findSubagent ?? findSubagentRollout;
+  const findSubagentFn = deps?.findSubagent ?? locateSubagentRollout;
 
   const lines = await readRollout(transcript);
-  const { sessionMeta, turns } = parseSession(lines);
+  const { sessionMeta, turns } = parseRollout(lines);
 
   // A subagent session is emitted NESTED under its parent's trace (via the
   // parent's spawn_agent tool). Codex fires PostToolUse/Stop on the subagent
