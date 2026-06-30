@@ -2,3 +2,8 @@
 # no build step on install). Keep it tracked, but treat it as generated: collapse
 # it in PR diffs and exclude it from GitHub language stats.
 plugins/tracing/dist/index.mjs linguist-generated=true -diff
+
+# Lockfile and license text are not human-reviewed line-by-line — collapse them in
+# diffs and keep them out of language stats so the reviewable diff is real code.
+pnpm-lock.yaml linguist-generated=true -diff
+LICENSE linguist-generated=true -diff
