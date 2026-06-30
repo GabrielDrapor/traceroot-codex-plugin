@@ -32057,7 +32057,12 @@ function planToolSpan(sessionMeta, tc, parentSpanId, traceId, ctx) {
 	commonTrace(attrs, sessionMeta, ctx);
 	attrs["traceroot.span.input"] = str(tc.args, ctx.maxChars);
 	if (tc.output !== void 0) attrs["traceroot.span.output"] = str(tc.output, ctx.maxChars);
-	if (tc.error) attrs["traceroot.span.metadata"] = JSON.stringify({ error: tc.error });
+	const meta = {};
+	if (tc.kind !== void 0) meta["tool_kind"] = tc.kind;
+	if (tc.status !== void 0) meta["status"] = tc.status;
+	if (tc.exitCode !== void 0) meta["exit_code"] = tc.exitCode;
+	if (tc.error !== void 0) meta["error"] = tc.error;
+	if (Object.keys(meta).length > 0) attrs["traceroot.span.metadata"] = JSON.stringify(meta);
 	return {
 		spanId: makeSpanId(tc.callId),
 		parentSpanId,
@@ -32109,6 +32114,22 @@ async function readRollout(file) {
 	return lines;
 }
 const ms = (ts) => Date.parse(ts);
+function toolKindFromEndEvent(eventType) {
+	if (eventType === "exec_command_end") return "exec";
+	if (eventType === "patch_apply_end") return "patch";
+	if (eventType === "mcp_tool_call_end") return "mcp";
+	if (eventType === "collab_agent_spawn_end") return "spawn";
+	if (eventType === "custom_tool_call_end") return "custom";
+	if (eventType === "web_search_end" || eventType === "tool_search_call_end") return "search";
+	return "unknown";
+}
+function extractToolError(p) {
+	if (p.error != null || p.codex_error_info != null) return JSON.stringify(p.error ?? p.codex_error_info);
+	const parts = [p.stdout, p.stderr].filter(Boolean);
+	if (parts.length) return parts.join("\n");
+	if (p.aggregated_output != null) return p.aggregated_output;
+	if (typeof p.exit_code === "number") return `Exit code: ${p.exit_code}`;
+}
 function reasoningText(p) {
 	const parts = [];
 	for (const s of p.summary ?? []) if (s?.text) parts.push(s.text);
@@ -32192,7 +32213,19 @@ function parseSession(lines) {
 						turn.finalOutput = p.last_agent_message ?? lastText ?? void 0;
 					}
 					break;
-				default: if (turn && typeof p.new_thread_id === "string") turn.subagentThreadIds.push(p.new_thread_id);
+				default:
+					if (turn && typeof p.new_thread_id === "string") turn.subagentThreadIds.push(p.new_thread_id);
+					if (turn && p.type.endsWith("_end") && typeof p.call_id === "string") {
+						const tc = toolsByCallId.get(p.call_id);
+						if (tc) {
+							tc.kind = toolKindFromEndEvent(p.type);
+							if (typeof p.status === "string") tc.status = p.status;
+							if (typeof p.exit_code === "number") tc.exitCode = p.exit_code;
+							if (!tc.endTime) tc.endTime = at;
+							if (tc.output === void 0) tc.output = p.aggregated_output ?? p.stdout;
+							if (p.status === "failed" || p.status === "declined") tc.error = extractToolError(p);
+						}
+					}
 			}
 			continue;
 		}

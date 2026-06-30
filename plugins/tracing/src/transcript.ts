@@ -20,6 +20,27 @@ export async function readRollout(file: string): Promise<RolloutLine[]> {
 
 const ms = (ts: string): number => Date.parse(ts);
 
+function toolKindFromEndEvent(eventType: string): string {
+  if (eventType === "exec_command_end") return "exec";
+  if (eventType === "patch_apply_end") return "patch";
+  if (eventType === "mcp_tool_call_end") return "mcp";
+  if (eventType === "collab_agent_spawn_end") return "spawn";
+  if (eventType === "custom_tool_call_end") return "custom";
+  if (eventType === "web_search_end" || eventType === "tool_search_call_end") return "search";
+  return "unknown";
+}
+
+function extractToolError(p: EventMsgPayload): string | undefined {
+  if (p.error != null || p.codex_error_info != null) {
+    return JSON.stringify(p.error ?? p.codex_error_info);
+  }
+  const parts = ([p.stdout, p.stderr] as Array<string | undefined>).filter(Boolean) as string[];
+  if (parts.length) return parts.join("\n");
+  if (p.aggregated_output != null) return p.aggregated_output;
+  if (typeof p.exit_code === "number") return `Exit code: ${p.exit_code}`;
+  return undefined;
+}
+
 function reasoningText(p: { summary?: unknown[]; content?: unknown }): string | undefined {
   const parts: string[] = [];
   for (const s of (p.summary ?? []) as Array<{ text?: string }>) if (s?.text) parts.push(s.text);
@@ -101,6 +122,17 @@ export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
           break;
         default:
           if (turn && typeof p.new_thread_id === "string") turn.subagentThreadIds.push(p.new_thread_id);
+          if (turn && p.type.endsWith("_end") && typeof p.call_id === "string") {
+            const tc = toolsByCallId.get(p.call_id);
+            if (tc) {
+              tc.kind = toolKindFromEndEvent(p.type);
+              if (typeof p.status === "string") tc.status = p.status;
+              if (typeof p.exit_code === "number") tc.exitCode = p.exit_code;
+              if (!tc.endTime) tc.endTime = at;
+              if (tc.output === undefined) tc.output = p.aggregated_output ?? p.stdout;
+              if (p.status === "failed" || p.status === "declined") tc.error = extractToolError(p);
+            }
+          }
       }
       continue;
     }

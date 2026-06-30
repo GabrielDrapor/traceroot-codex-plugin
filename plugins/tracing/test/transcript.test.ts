@@ -6,6 +6,7 @@ import type { RolloutLine } from "../src/types.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = path.join(here, "fixtures", "rollout-basic.jsonl");
+const toolDetailFixture = path.join(here, "fixtures", "rollout-tool-detail.jsonl");
 
 const ts = (sec: number): string => new Date(sec * 1000).toISOString();
 
@@ -52,6 +53,34 @@ describe("parseSession", () => {
     const t = turns[0]!;
     expect(t.steps).toHaveLength(1);
     expect(t.steps[0]!.text).toBeUndefined();
+  });
+
+  it("enriches tool calls from *_end event_msg events", async () => {
+    const lines = await readRollout(toolDetailFixture);
+    const { turns } = parseSession(lines);
+    expect(turns).toHaveLength(1);
+    const t = turns[0]!;
+    expect(t.steps).toHaveLength(1);
+    const toolCalls = t.steps[0]!.toolCalls;
+    expect(toolCalls).toHaveLength(2);
+
+    // (a) successful exec
+    const tcOk = toolCalls.find((tc) => tc.callId === "call-ok")!;
+    expect(tcOk).toBeDefined();
+    expect((tcOk as { kind?: string }).kind).toBe("exec");
+    expect((tcOk as { status?: string }).status).toBe("completed");
+    expect((tcOk as { exitCode?: number }).exitCode).toBe(0);
+    expect(tcOk.endTime).toBeTruthy();
+    expect(tcOk.error).toBeUndefined();
+
+    // (b) failed exec
+    const tcFail = toolCalls.find((tc) => tc.callId === "call-fail")!;
+    expect(tcFail).toBeDefined();
+    expect((tcFail as { kind?: string }).kind).toBe("exec");
+    expect((tcFail as { status?: string }).status).toBe("failed");
+    expect((tcFail as { exitCode?: number }).exitCode).toBe(1);
+    expect(tcFail.endTime).toBeTruthy();
+    expect(tcFail.error).toContain("boom");
   });
 
   it("attaches function_call_output arriving after token_count without spawning an empty step", () => {

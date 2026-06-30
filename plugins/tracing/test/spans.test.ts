@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { planTurnSpans } from "../src/spans.js";
 import { makeSpanId, makeTraceId } from "../src/ids.js";
-import type { SessionMeta, Turn } from "../src/types.js";
+import type { SessionMeta, ToolCall, Turn } from "../src/types.js";
 
 const sessionMeta: SessionMeta = { sessionId: "sess-abc" };
 const turn: Turn = {
@@ -61,6 +61,38 @@ describe("planTurnSpans", () => {
     expect(tool.attributes["traceroot.span.type"]).toBe("TOOL");
     expect(String(tool.attributes["traceroot.span.output"])).toContain("a.txt");
     expect(tool.complete).toBe(true);
+  });
+});
+
+describe("planToolSpan enriched metadata", () => {
+  it("emits traceroot.span.metadata with tool_kind, status, exit_code and error for a failed tool call", () => {
+    const enrichedTurn: Turn = {
+      ...turn,
+      steps: [{
+        ...turn.steps[0]!,
+        toolCalls: [{
+          callId: "call-fail",
+          name: "exec",
+          args: { cmd: "false" },
+          startTime: 1800,
+          endTime: 2000,
+          kind: "exec",
+          status: "failed",
+          exitCode: 1,
+          error: "boom",
+        } satisfies ToolCall],
+      }],
+    };
+    const spans = planTurnSpans(sessionMeta, enrichedTurn, ctx);
+    const tool = spans.find((s) => s.kind === "TOOL")!;
+    expect(tool).toBeDefined();
+    const rawMeta = tool.attributes["traceroot.span.metadata"];
+    expect(rawMeta).toBeDefined();
+    const meta = JSON.parse(rawMeta as string) as Record<string, unknown>;
+    expect(meta["tool_kind"]).toBe("exec");
+    expect(meta["status"]).toBe("failed");
+    expect(meta["exit_code"]).toBe(1);
+    expect(String(meta["error"])).toContain("boom");
   });
 });
 

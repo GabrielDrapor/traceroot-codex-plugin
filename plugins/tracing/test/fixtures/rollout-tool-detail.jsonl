@@ -1,0 +1,11 @@
+{"timestamp":"2026-06-29T10:00:00.000Z","type":"session_meta","payload":{"id":"sess-tool-detail","cwd":"/repo","cli_version":"0.140.0"}}
+{"timestamp":"2026-06-29T10:00:01.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-td"}}
+{"timestamp":"2026-06-29T10:00:02.000Z","type":"turn_context","payload":{"turn_id":"turn-td","model":"gpt-5.5"}}
+{"timestamp":"2026-06-29T10:00:03.000Z","type":"event_msg","payload":{"type":"user_message","message":"run two commands"}}
+{"timestamp":"2026-06-29T10:00:04.000Z","type":"response_item","payload":{"type":"function_call","name":"exec","call_id":"call-ok","arguments":"{\"cmd\":\"echo ok\"}"}}
+{"timestamp":"2026-06-29T10:00:05.000Z","type":"event_msg","payload":{"type":"exec_command_end","call_id":"call-ok","status":"completed","exit_code":0,"stdout":"ok"}}
+{"timestamp":"2026-06-29T10:00:06.000Z","type":"response_item","payload":{"type":"function_call","name":"exec","call_id":"call-fail","arguments":"{\"cmd\":\"false\"}"}}
+{"timestamp":"2026-06-29T10:00:07.000Z","type":"event_msg","payload":{"type":"exec_command_end","call_id":"call-fail","status":"failed","exit_code":1,"stderr":"boom"}}
+{"timestamp":"2026-06-29T10:00:08.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done."}]}}
+{"timestamp":"2026-06-29T10:00:09.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":10}}}}
+{"timestamp":"2026-06-29T10:00:10.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-td","last_agent_message":"Done."}}

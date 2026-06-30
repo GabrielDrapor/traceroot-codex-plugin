@@ -62,6 +62,14 @@ export type EventMsgPayload = {
   completed_at?: number;
   last_agent_message?: string | null;
   info?: { total_token_usage?: TokenUsage; last_token_usage?: TokenUsage; model_context_window?: number } | null;
+  // *_end event fields
+  status?: string;
+  exit_code?: number;
+  stdout?: string;
+  stderr?: string;
+  aggregated_output?: string;
+  error?: unknown;
+  codex_error_info?: unknown;
   [key: string]: unknown;
 };
 
@@ -81,6 +89,10 @@ export type ToolCall = {
   endTime?: number;
   output?: unknown;
   error?: string;
+  // enriched from *_end event_msg
+  kind?: string;
+  status?: string;
+  exitCode?: number;
 };
 
 export type ModelStep = {

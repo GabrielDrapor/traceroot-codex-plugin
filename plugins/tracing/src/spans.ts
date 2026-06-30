@@ -85,7 +85,12 @@ function planToolSpan(
   commonTrace(attrs, sessionMeta, ctx);
   attrs["traceroot.span.input"] = str(tc.args, ctx.maxChars);
   if (tc.output !== undefined) attrs["traceroot.span.output"] = str(tc.output, ctx.maxChars);
-  if (tc.error) attrs["traceroot.span.metadata"] = JSON.stringify({ error: tc.error });
+  const meta: Record<string, unknown> = {};
+  if (tc.kind !== undefined) meta["tool_kind"] = tc.kind;
+  if (tc.status !== undefined) meta["status"] = tc.status;
+  if (tc.exitCode !== undefined) meta["exit_code"] = tc.exitCode;
+  if (tc.error !== undefined) meta["error"] = tc.error;
+  if (Object.keys(meta).length > 0) attrs["traceroot.span.metadata"] = JSON.stringify(meta);
   return {
     spanId: makeSpanId(tc.callId), parentSpanId, traceId, kind: "TOOL",
     name: tc.name, startTime: tc.startTime, endTime: tc.endTime ?? tc.startTime,
