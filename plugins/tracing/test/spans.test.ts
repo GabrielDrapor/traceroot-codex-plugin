@@ -47,6 +47,17 @@ describe("planTurnSpans", () => {
     expect(llm.attributes["llm.token_count.prompt_details.cache_read"]).toBe(1000);
   });
 
+  it("LLM span carries input + rich output (content/reasoning/tool_calls), never empty", () => {
+    const llm = byKind("LLM")[0]!;
+    // first step input = the user prompt
+    expect(llm.attributes["traceroot.span.input"]).toBe("list the files");
+    const output = JSON.parse(String(llm.attributes["traceroot.span.output"]));
+    expect(output.content).toBe("two files");
+    expect(output.reasoning).toBe("ls");
+    expect(output.tool_calls).toEqual([{ name: "exec_command", args: { cmd: "ls" } }]);
+    expect(JSON.parse(String(llm.attributes["traceroot.span.metadata"]))["codex.step_index"]).toBe(0);
+  });
+
   it("root carries session id + git on root, session id on every span", () => {
     const root = byKind("AGENT")[0]!;
     expect(root.attributes["traceroot.trace.session_id"]).toBe("sess-abc");

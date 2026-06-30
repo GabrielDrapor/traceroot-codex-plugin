@@ -58,7 +58,14 @@ export function planTurnSpans(sessionMeta: SessionMeta, turn: Turn, ctx: EmitCtx
   commonTrace(rootAttrs, sessionMeta, ctx);
   if (turn.userInput) rootAttrs["traceroot.span.input"] = str(turn.userInput, ctx.maxChars);
   if (turn.finalOutput) rootAttrs["traceroot.span.output"] = str(turn.finalOutput, ctx.maxChars);
-  if (turn.model) rootAttrs["traceroot.span.metadata"] = JSON.stringify({ model: turn.model });
+  rootAttrs["traceroot.span.metadata"] = JSON.stringify(pruneUndefined({
+    "codex.turn_id": turn.turnId,
+    "codex.thread_id": sessionMeta.sessionId,
+    "codex.model": turn.model,
+    "codex.model_provider": sessionMeta.modelProvider,
+    "codex.cli_version": sessionMeta.cliVersion,
+    "codex.tool_call_count": turn.steps.reduce((n, s) => n + s.toolCalls.length, 0),
+  }));
   if (ctx.git?.repo) rootAttrs["traceroot.git.repo"] = ctx.git.repo;
   if (ctx.git?.ref) rootAttrs["traceroot.git.ref"] = ctx.git.ref;
   out.push({
@@ -67,23 +74,49 @@ export function planTurnSpans(sessionMeta: SessionMeta, turn: Turn, ctx: EmitCtx
     attributes: rootAttrs, complete: turn.completed,
   });
 
+  // LLM-step input is the user prompt (first step) or the prior step's tool
+  // results fed back to the model (continuation steps) — like the conversation
+  // the model actually saw.
+  let prevToolResults: string | undefined;
   for (const step of turn.steps) {
     const stepId = makeSpanId(seed + turn.turnId + ":step:" + step.index);
-    out.push(planStepSpan(sessionMeta, turn, step, stepId, rootId, traceId, ctx));
+    const input = step.index === 0 ? turn.userInput : prevToolResults;
+    out.push(planStepSpan(sessionMeta, turn, step, stepId, rootId, traceId, ctx, input));
     for (const tc of step.toolCalls) out.push(planToolSpan(sessionMeta, tc, seed, stepId, traceId, ctx));
+    if (step.toolCalls.length) {
+      prevToolResults = str(step.toolCalls.map((tc) => ({ name: tc.name, output: tc.output })), ctx.maxChars);
+    }
   }
   return out;
 }
 
+function pruneUndefined(o: Record<string, unknown>): Record<string, unknown> {
+  const r: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== null) r[k] = v;
+  return r;
+}
+
+/** LLM-step output: text + reasoning + the tool calls the model requested. */
+function buildStepOutput(step: ModelStep, max: number): string | undefined {
+  const o: Record<string, unknown> = {};
+  if (step.text) o.content = step.text;
+  if (step.reasoning) o.reasoning = step.reasoning;
+  if (step.toolCalls.length) o.tool_calls = step.toolCalls.map((tc) => ({ name: tc.name, args: tc.args }));
+  if (Object.keys(o).length === 0) return undefined;
+  return truncate(JSON.stringify(o), max);
+}
+
 function planStepSpan(
   sessionMeta: SessionMeta, turn: Turn, step: ModelStep,
-  spanId: string, parentSpanId: string, traceId: string, ctx: EmitCtx,
+  spanId: string, parentSpanId: string, traceId: string, ctx: EmitCtx, input: string | undefined,
 ): EmittableSpan {
   const attrs: Record<string, string | number> = { "traceroot.span.type": "LLM" };
   commonTrace(attrs, sessionMeta, ctx);
   if (turn.model) attrs["traceroot.llm.model"] = turn.model;
-  if (step.text) attrs["traceroot.span.output"] = str(step.text, ctx.maxChars);
-  if (step.reasoning) attrs["traceroot.span.metadata"] = JSON.stringify({ reasoning: truncate(step.reasoning, ctx.maxChars) });
+  if (input) attrs["traceroot.span.input"] = truncate(input, ctx.maxChars);
+  const output = buildStepOutput(step, ctx.maxChars);
+  if (output) attrs["traceroot.span.output"] = output;
+  attrs["traceroot.span.metadata"] = JSON.stringify({ "codex.step_index": step.index });
   Object.assign(attrs, mapUsage(step.usage));
   return {
     spanId, parentSpanId, traceId, kind: "LLM",

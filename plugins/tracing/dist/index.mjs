@@ -32018,7 +32018,14 @@ function planTurnSpans(sessionMeta, turn, ctx, opts) {
 	commonTrace(rootAttrs, sessionMeta, ctx);
 	if (turn.userInput) rootAttrs["traceroot.span.input"] = str(turn.userInput, ctx.maxChars);
 	if (turn.finalOutput) rootAttrs["traceroot.span.output"] = str(turn.finalOutput, ctx.maxChars);
-	if (turn.model) rootAttrs["traceroot.span.metadata"] = JSON.stringify({ model: turn.model });
+	rootAttrs["traceroot.span.metadata"] = JSON.stringify(pruneUndefined({
+		"codex.turn_id": turn.turnId,
+		"codex.thread_id": sessionMeta.sessionId,
+		"codex.model": turn.model,
+		"codex.model_provider": sessionMeta.modelProvider,
+		"codex.cli_version": sessionMeta.cliVersion,
+		"codex.tool_call_count": turn.steps.reduce((n, s) => n + s.toolCalls.length, 0)
+	}));
 	if (ctx.git?.repo) rootAttrs["traceroot.git.repo"] = ctx.git.repo;
 	if (ctx.git?.ref) rootAttrs["traceroot.git.ref"] = ctx.git.ref;
 	out.push({
@@ -32032,19 +32039,44 @@ function planTurnSpans(sessionMeta, turn, ctx, opts) {
 		attributes: rootAttrs,
 		complete: turn.completed
 	});
+	let prevToolResults;
 	for (const step of turn.steps) {
 		const stepId = makeSpanId(seed + turn.turnId + ":step:" + step.index);
-		out.push(planStepSpan(sessionMeta, turn, step, stepId, rootId, traceId, ctx));
+		const input = step.index === 0 ? turn.userInput : prevToolResults;
+		out.push(planStepSpan(sessionMeta, turn, step, stepId, rootId, traceId, ctx, input));
 		for (const tc of step.toolCalls) out.push(planToolSpan(sessionMeta, tc, seed, stepId, traceId, ctx));
+		if (step.toolCalls.length) prevToolResults = str(step.toolCalls.map((tc) => ({
+			name: tc.name,
+			output: tc.output
+		})), ctx.maxChars);
 	}
 	return out;
 }
-function planStepSpan(sessionMeta, turn, step, spanId, parentSpanId, traceId, ctx) {
+function pruneUndefined(o) {
+	const r = {};
+	for (const [k, v] of Object.entries(o)) if (v !== void 0 && v !== null) r[k] = v;
+	return r;
+}
+/** LLM-step output: text + reasoning + the tool calls the model requested. */
+function buildStepOutput(step, max) {
+	const o = {};
+	if (step.text) o.content = step.text;
+	if (step.reasoning) o.reasoning = step.reasoning;
+	if (step.toolCalls.length) o.tool_calls = step.toolCalls.map((tc) => ({
+		name: tc.name,
+		args: tc.args
+	}));
+	if (Object.keys(o).length === 0) return void 0;
+	return truncate(JSON.stringify(o), max);
+}
+function planStepSpan(sessionMeta, turn, step, spanId, parentSpanId, traceId, ctx, input) {
 	const attrs = { "traceroot.span.type": "LLM" };
 	commonTrace(attrs, sessionMeta, ctx);
 	if (turn.model) attrs["traceroot.llm.model"] = turn.model;
-	if (step.text) attrs["traceroot.span.output"] = str(step.text, ctx.maxChars);
-	if (step.reasoning) attrs["traceroot.span.metadata"] = JSON.stringify({ reasoning: truncate(step.reasoning, ctx.maxChars) });
+	if (input) attrs["traceroot.span.input"] = truncate(input, ctx.maxChars);
+	const output = buildStepOutput(step, ctx.maxChars);
+	if (output) attrs["traceroot.span.output"] = output;
+	attrs["traceroot.span.metadata"] = JSON.stringify({ "codex.step_index": step.index });
 	Object.assign(attrs, mapUsage(step.usage));
 	return {
 		spanId,
