@@ -50,7 +50,7 @@ export async function getConfig(cwd: string = process.cwd()): Promise<Config> {
       "https://app.traceroot.ai",
     environment: envFirst("TRACEROOT_ENVIRONMENT") ?? (j.environment as string | undefined),
     userId: envFirst("TRACEROOT_CODEX_USER_ID") ?? (j.user_id as string | undefined),
-    maxChars: Number(envFirst("TRACEROOT_CODEX_MAX_CHARS") ?? j.max_chars ?? 20000),
+    maxChars: (n => Number.isFinite(n) ? n : 20000)(Number(envFirst("TRACEROOT_CODEX_MAX_CHARS") ?? j.max_chars ?? 20000)),
     debug: truthy(envFirst("TRACEROOT_CODEX_DEBUG") ?? j.debug),
     failOnError: truthy(envFirst("TRACEROOT_CODEX_FAIL_ON_ERROR") ?? j.fail_on_error),
     enabled: false,

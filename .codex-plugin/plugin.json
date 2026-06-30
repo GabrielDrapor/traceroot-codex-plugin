@@ -11,7 +11,7 @@
   "interface": {
     "displayName": "Tracing",
     "shortDescription": "Trace Codex sessions to Traceroot",
-    "longDescription": "Streams each Codex query as a trace to Traceroot: agent turns, model calls, tool executions, token usage, and subagents — live, one trace per query, linked to your git repo.",
+    "longDescription": "Streams each Codex query as one trace to Traceroot: agent turns, model calls, tool executions, and token usage — live, one trace per query, linked to your git repo.",
     "developerName": "Traceroot",
     "category": "Coding",
     "capabilities": ["Read"],

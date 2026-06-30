@@ -30,18 +30,22 @@ export async function dispatch(
   const already = await loadEmittedSpanIds(transcript);
   const tracing = buildTracingFn(config);
   let emitted = 0;
+  const emittedIds: string[] = [];
   try {
     for (const turn of turns) {
       for (const span of planTurnSpans(sessionMeta, turn, ctx)) {
         if (!span.complete || already.has(span.spanId)) continue;
         emitSpan(tracing, span);
-        await markSpanEmitted(transcript, span.spanId);
+        emittedIds.push(span.spanId);
         already.add(span.spanId);
         emitted += 1;
       }
     }
   } finally {
     await tracing.shutdown();
+  }
+  for (const id of emittedIds) {
+    await markSpanEmitted(transcript, id);
   }
   debugLog(`emitted ${emitted} spans`);
   return { emitted };

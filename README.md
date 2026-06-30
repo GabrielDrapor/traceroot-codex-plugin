@@ -1,6 +1,6 @@
 # traceroot-codex-plugin
 
-Trace OpenAI Codex sessions to Traceroot. Streams each Codex query as a trace: agent turns, model calls, tool executions, token usage, and subagents — live, one trace per query, linked to your git repo.
+Trace OpenAI Codex sessions to Traceroot. Streams each Codex query as one trace: agent turns, model calls, tool executions, and token usage — live, one trace per query, linked to your git repo.
 
 ## Installation
 
@@ -81,9 +81,11 @@ No code, files, or any data outside the trace is sent.
 The plugin uses stateless Codex hooks (`PostToolUse`, `Stop`, `SubagentStop`) to read the live rollout transcript. For each hook invocation, it:
 
 1. Reads the Codex transcript from disk
-2. Extracts spans (agent turns, model calls, tool use, subagents)
+2. Extracts spans (agent turns, model calls, tool use)
 3. Emits OpenTelemetry spans to your Traceroot instance
 4. Never blocks a Codex operation (fail-open design)
+
+> **Note:** Subagent-subtree tracing (linking child agent runs as nested spans) is planned for a future release.
 
 There is no daemon or persistent process. Each hook call is independent and non-blocking.
 

@@ -82,7 +82,7 @@ async function getConfig(cwd = process.cwd()) {
 		hostUrl: envFirst("TRACEROOT_CODEX_HOST_URL", "TRACEROOT_HOST_URL") ?? j.host_url ?? "https://app.traceroot.ai",
 		environment: envFirst("TRACEROOT_ENVIRONMENT") ?? j.environment,
 		userId: envFirst("TRACEROOT_CODEX_USER_ID") ?? j.user_id,
-		maxChars: Number(envFirst("TRACEROOT_CODEX_MAX_CHARS") ?? j.max_chars ?? 2e4),
+		maxChars: ((n) => Number.isFinite(n) ? n : 2e4)(Number(envFirst("TRACEROOT_CODEX_MAX_CHARS") ?? j.max_chars ?? 2e4)),
 		debug: truthy(envFirst("TRACEROOT_CODEX_DEBUG") ?? j.debug),
 		failOnError: truthy(envFirst("TRACEROOT_CODEX_FAIL_ON_ERROR") ?? j.fail_on_error),
 		enabled: false
@@ -32254,17 +32254,19 @@ async function dispatch(hook, config, deps) {
 	const already = await loadEmittedSpanIds(transcript);
 	const tracing = buildTracingFn(config);
 	let emitted = 0;
+	const emittedIds = [];
 	try {
 		for (const turn of turns) for (const span of planTurnSpans(sessionMeta, turn, ctx)) {
 			if (!span.complete || already.has(span.spanId)) continue;
 			emitSpan(tracing, span);
-			await markSpanEmitted(transcript, span.spanId);
+			emittedIds.push(span.spanId);
 			already.add(span.spanId);
 			emitted += 1;
 		}
 	} finally {
 		await tracing.shutdown();
 	}
+	for (const id of emittedIds) await markSpanEmitted(transcript, id);
 	debugLog(`emitted ${emitted} spans`);
 	return { emitted };
 }
