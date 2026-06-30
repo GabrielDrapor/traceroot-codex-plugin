@@ -6,11 +6,11 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown --config plugins/tracing/tsdown.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint:dist": "pnpm run build && git diff --exit-code -- dist/index.mjs"
+    "lint:dist": "pnpm run build && git diff --exit-code -- plugins/tracing/dist/index.mjs"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
