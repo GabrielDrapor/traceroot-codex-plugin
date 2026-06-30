@@ -1,16 +1,21 @@
 # traceroot-codex-plugin
 
-Trace OpenAI Codex sessions to Traceroot. Streams each Codex query as one trace: agent turns, model calls, tool executions, and token usage — live, one trace per query, linked to your git repo.
+Trace OpenAI Codex sessions to [Traceroot](https://traceroot.ai). Each Codex query becomes **one trace** — agent turn, model calls, tool executions, and any subagents it spawns — **streamed live** as the agent works, linked to your git repo.
+
+- **One trace per query.** A query and everything it does (model steps, tool calls, file edits, subagents) is a single trace. Multiple queries in a session are linked by session id (Traceroot's **Sessions** view).
+- **Live.** Spans appear and the trace grows as the agent runs — you don't wait for it to finish. The trace is named `Codex Turn` from the first span.
+- **Subagents nested.** When Codex delegates to parallel workers (`spawn_agent`), each subagent's full execution is nested **under the spawn tool that created it**, in the same trace.
+- **No daemon.** Stateless one-shot hooks. Nothing runs in the background; tracing never blocks a Codex operation (fail-open).
 
 ## Installation
 
-Install the plugin from the Codex plugin marketplace:
+Install from the Codex plugin marketplace:
 
 ```bash
 codex plugin marketplace add traceroot-ai/traceroot-codex-plugin
 ```
 
-Then enable it in your `~/.codex/config.toml`:
+Then enable it in `~/.codex/config.toml`:
 
 ```toml
 plugin_hooks = true
@@ -21,88 +26,60 @@ enabled = true
 
 ## Configuration
 
-Configure Traceroot API access via environment variables, project `.codex/traceroot.json`, or global `~/.codex/traceroot.json`. Settings are resolved in this order (highest precedence first):
-
-1. Environment variables
-2. Project `.codex/traceroot.json`
-3. Global `~/.codex/traceroot.json`
-4. Built-in defaults
-
-When the same key is set in both a project and a global `traceroot.json`, the project file wins.
-
-| Setting | Env Var | JSON Key | Default | Required | Notes |
-|---------|---------|----------|---------|----------|-------|
-| **Master enable** | `TRACE_TO_TRACEROOT` | `enabled` | — | Yes | Set to `true` to enable tracing. Plugin also requires `TRACEROOT_API_KEY` to be set. |
-| **API key** | `TRACEROOT_API_KEY` | `api_key` | — | Yes | Obtain from [app.traceroot.ai](https://app.traceroot.ai). The Codex-scoped `TRACEROOT_CODEX_API_KEY` takes precedence over `TRACEROOT_API_KEY` when both are set. |
-| **Host URL** | `TRACEROOT_HOST_URL` | `host_url` | `https://app.traceroot.ai` | No | Point to your self-hosted Traceroot instance if needed. The Codex-scoped `TRACEROOT_CODEX_HOST_URL` takes precedence over `TRACEROOT_HOST_URL` when both are set. |
-| **Max span size** | `TRACEROOT_CODEX_MAX_CHARS` | `max_chars` | `20000` | No | Maximum characters in a span attribute before truncation. |
-| **Debug logging** | `TRACEROOT_CODEX_DEBUG` | `debug` | `false` | No | Set to `true` to see debug output. |
-| **Fail on error** | `TRACEROOT_CODEX_FAIL_ON_ERROR` | `fail_on_error` | `false` | No | Set to `true` to fail a Codex turn if tracing fails. By default, tracing errors never block Codex. |
-
-### Example Configuration
-
-**Global `~/.codex/traceroot.json`:**
+The plugin runs as a Codex **hook subprocess**, which does not reliably inherit your shell environment. The **recommended setup is a config file**, `~/.codex/traceroot.json`:
 
 ```json
 {
-  "host_url": "https://app.traceroot.ai",
-  "max_chars": 20000
+  "enabled": true,
+  "api_key": "your-api-key-from-app.traceroot.ai"
 }
 ```
 
-**Project `.codex/traceroot.json`:**
+Get your API key at [app.traceroot.ai](https://app.traceroot.ai). That's all that's required.
 
-```json
-{
-  "debug": true
-}
-```
+### All settings
 
-**Environment variables (highest precedence):**
+Settings are resolved in this order (highest precedence first): **environment variables → project `.codex/traceroot.json` → global `~/.codex/traceroot.json` → built-in defaults.** When the same key is set in both a project and a global file, the project file wins. (Environment variables are supported but only take effect if Codex passes them to the hook — prefer the config file.)
 
-```bash
-export TRACE_TO_TRACEROOT=true
-export TRACEROOT_API_KEY=your-api-key-here
-```
+| Setting | Env var | JSON key | Default | Notes |
+|---------|---------|----------|---------|-------|
+| **Master enable** | `TRACE_TO_TRACEROOT` | `enabled` | `false` | Must be true **and** an API key present for tracing to run. |
+| **API key** | `TRACEROOT_API_KEY` | `api_key` | — | Required. `TRACEROOT_CODEX_API_KEY` overrides the plain form when both are set. |
+| **Host URL** | `TRACEROOT_HOST_URL` | `host_url` | `https://app.traceroot.ai` | Point at a self-hosted instance if needed. `TRACEROOT_CODEX_HOST_URL` overrides the plain form. |
+| **Max span size** | `TRACEROOT_CODEX_MAX_CHARS` | `max_chars` | `20000` | Span attributes longer than this are truncated. |
+| **Debug logging** | `TRACEROOT_CODEX_DEBUG` | `debug` | `false` | Logs to stderr; helps diagnose config/network/emission. |
+| **Fail on error** | `TRACEROOT_CODEX_FAIL_ON_ERROR` | `fail_on_error` | `false` | By default a tracing error never blocks a Codex turn. |
 
-## What Gets Sent
+## What gets captured
 
-Only the data that appears in your traces is sent to the configured Traceroot host:
+- **Agent turn** (`Codex Turn`) — the query prompt and final answer, with git repo/ref and model.
+- **Model calls** — each model step with its input (prompt or prior tool results), output (text + reasoning summary + the tool calls it requested), token counts, and cost (priced by the backend, cache-aware).
+- **Tool executions** — `exec_command` (bash), `apply_patch` (file edits), MCP tools, web/tool search, etc., with arguments, output, and — where Codex reports it — exit code, status, and tool kind.
+- **Subagents** — `spawn_agent` workers, fully nested under their spawn tool in the same trace.
 
-- Agent turns and tool calls (prompts, inputs, outputs)
-- Model names and token counts
-- Git repository and branch information
-- Span IDs, timing, and status
+### What is (and isn't) sent
 
-No code, files, or any data outside the trace is sent.
+Only what appears in the trace is sent to your configured Traceroot host: turn prompts/answers, tool inputs/outputs (which can include commands and file contents), model/token info, and git repo/branch. Nothing outside the trace is sent. If your tools handle secrets, be aware their inputs/outputs are part of the trace.
 
-## How It Works
+## How it works
 
-The plugin uses stateless Codex hooks (`PostToolUse`, `Stop`, `SubagentStop`) to read the live rollout transcript. For each hook invocation, it:
+Stateless Codex hooks (`PostToolUse`, `Stop`, `SubagentStop`) read the live rollout transcript on disk and emit OpenTelemetry spans to Traceroot. Each hook invocation:
 
-1. Reads the Codex transcript from disk
-2. Extracts spans (agent turns, model calls, tool use)
-3. Emits OpenTelemetry spans to your Traceroot instance
-4. Never blocks a Codex operation (fail-open design)
+1. Reads the Codex rollout transcript,
+2. Reconstructs the turn (model steps, tool calls, subagent spawns),
+3. Emits any newly-complete spans, using **deterministic span ids** so a child span can reference its parent before the parent exists and re-emitting is idempotent (a sidecar ledger, `<rollout>.traceroot`, tracks what's been sent),
+4. Never blocks Codex (fail-open).
 
-> **Note:** Subagent-subtree tracing (linking child agent runs as nested spans) is planned for a future release.
+`PostToolUse` drives the live streaming (a span lands as each tool completes); `Stop` finalizes the turn; `SubagentStop` re-walks the parent so a just-finished subagent's spans land promptly. There is no daemon — each hook call is independent.
 
-There is no daemon or persistent process. Each hook call is independent and non-blocking.
-
-### Debug Mode
-
-Enable debug logging to see what the plugin is doing:
+### Debug
 
 ```bash
-export TRACEROOT_CODEX_DEBUG=true
+export TRACEROOT_CODEX_DEBUG=true   # or "debug": true in traceroot.json
 ```
 
-Debug messages appear on stderr and help diagnose configuration, network, or span-emission issues.
-
-## Sessions and Traces
-
-Each Codex query generates one trace. Multiple queries in a session are linked by session ID (visible in Traceroot's Sessions view). Each trace is linked to your git repository and current branch.
+Debug messages go to stderr.
 
 ## License
 
-Apache License 2.0 — see LICENSE file for details.
+Apache License 2.0 — see [LICENSE](LICENSE).
