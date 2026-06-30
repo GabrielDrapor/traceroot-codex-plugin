@@ -1,6 +1,6 @@
 # traceroot-codex-plugin
 
-Trace OpenAI Codex sessions to [Traceroot](https://traceroot.ai). Every query becomes **one live trace** — agent turn, model calls, tool calls, file edits, and any subagents it spawns — streamed as the agent works and linked to your git repo. No daemon; tracing never blocks Codex.
+Trace OpenAI Codex sessions to [TraceRoot](https://traceroot.ai). Every query becomes **one live trace** — agent turn, model calls, tool calls, file edits, and any subagents it spawns — streamed as the agent works and linked to your git repo. No daemon; tracing never blocks Codex.
 
 ## Install
 
@@ -48,7 +48,7 @@ Resolved highest-precedence first: env vars → project `.codex/traceroot.json` 
 
 ## Privacy
 
-Only what appears in your traces is sent to your Traceroot host: prompts, tool inputs/outputs (which can include commands and file contents), model and token info, and git repo/branch. If your tools handle secrets, their inputs/outputs are part of the trace.
+Only what appears in your traces is sent to your TraceRoot host: prompts, tool inputs/outputs (which can include commands and file contents), model and token info, and git repo/branch. If your tools handle secrets, their inputs/outputs are part of the trace.
 
 ## License
 
