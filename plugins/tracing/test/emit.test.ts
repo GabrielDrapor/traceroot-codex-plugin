@@ -45,10 +45,12 @@ describe("dispatch", () => {
     expect(mem.getFinishedSpans()).toHaveLength(3);
 
     const r2 = await dispatch({ transcript_path: transcript }, config, deps);
-    expect(r2.emitted).toBe(0); // sidecar dedup
+    // The trace root re-emits every dispatch (so the trace stays named "Codex
+    // Turn" with a refreshed end/output); the LLM+TOOL spans dedup via sidecar.
+    expect(r2.emitted).toBe(1);
   });
 
-  it("live: emits completed tool+llm before the turn closes, root only after task_complete", async () => {
+  it("live: trace root + completed tool/llm emit before the turn closes; root refreshes on completion", async () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), "tr-live-"));
     const transcript = path.join(dir, "rollout.jsonl");
     await fs.copyFile(path.join(here, "fixtures", "rollout-inprogress.jsonl"), transcript);
@@ -65,15 +67,18 @@ describe("dispatch", () => {
     };
 
     const r1 = await dispatch({ transcript_path: transcript }, config, deps);
-    expect(r1.emitted).toBe(2); // LLM + TOOL, no AGENT root yet
+    // Trace root (named "Codex Turn") emits immediately for live naming, plus the
+    // already-complete LLM step and its TOOL — before the turn closes.
+    expect(r1.emitted).toBe(3);
     expect(mem.getFinishedSpans().map((s) => s.attributes["traceroot.span.type"]).sort())
-      .toEqual(["LLM", "TOOL"]);
+      .toEqual(["AGENT", "LLM", "TOOL"]);
 
-    // Now the turn completes: append task_complete and re-run.
+    // Now the turn completes: append task_complete and re-run. The root re-emits
+    // (refreshed end + finalOutput); LLM/TOOL already emitted (sidecar dedup).
     await fs.appendFile(transcript,
       '{"timestamp":"2026-06-23T23:21:36.100Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","last_agent_message":"done","completed_at":1782256896}}\n');
     const r2 = await dispatch({ transcript_path: transcript }, config, deps);
-    expect(r2.emitted).toBe(1); // only the AGENT root now
+    expect(r2.emitted).toBe(1); // the AGENT root re-emitted
   });
 
   it("skips standalone emission for a subagent session (it nests under its parent)", async () => {

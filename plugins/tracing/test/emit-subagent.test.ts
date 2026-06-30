@@ -109,7 +109,7 @@ describe("dispatch with subagent", () => {
     expect(childExec!.spanContext().traceId).toBe(parentTraceId);
   });
 
-  it("4. idempotency: second dispatch over same inputs emits 0 spans", async () => {
+  it("4. idempotency: second dispatch re-emits only the trace root", async () => {
     const transcript = await copyFixture("rollout-with-subagent.jsonl");
     const childPath  = path.join(fixturesDir, "rollout-child-thread-1.jsonl");
     const mem = new InMemorySpanExporter();
@@ -122,7 +122,9 @@ describe("dispatch with subagent", () => {
     expect(r1.emitted).toBe(6);
 
     const r2 = await dispatch({ transcript_path: transcript }, config, deps);
-    expect(r2.emitted).toBe(0); // sidecar dedup covers child spans too
+    // Only the trace root re-emits (for live naming/refresh); every other span —
+    // including all subagent spans — dedups via the sidecar.
+    expect(r2.emitted).toBe(1);
   });
 
   it("5. cycle guard: child that re-spawns an already-visited thread terminates without duplicates", async () => {

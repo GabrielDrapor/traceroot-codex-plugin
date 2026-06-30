@@ -78,7 +78,11 @@ export function planTurnSpans(sessionMeta: SessionMeta, turn: Turn, ctx: EmitCtx
   out.push({
     spanId: rootId, parentSpanId: rootParentSpanId, traceId, kind: "AGENT",
     name: "Codex Turn", startTime: turn.startTime, endTime: turn.endTime,
-    attributes: rootAttrs, complete: turn.completed,
+    attributes: rootAttrs,
+    // The trace root (no parent) is emittable immediately so the trace is named
+    // "Codex Turn" from the first live hook; emit.ts re-emits it to refine
+    // end/output. Subagent roots stay gated on completion.
+    complete: rootParentSpanId === null ? true : turn.completed,
   });
 
   // LLM-step input is the user prompt (first step) or the prior step's tool

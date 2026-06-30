@@ -32041,7 +32041,7 @@ function planTurnSpans(sessionMeta, turn, ctx, opts) {
 		startTime: turn.startTime,
 		endTime: turn.endTime,
 		attributes: rootAttrs,
-		complete: turn.completed
+		complete: rootParentSpanId === null ? true : turn.completed
 	});
 	let prevToolResults;
 	for (const step of turn.steps) {
@@ -32412,7 +32412,9 @@ const STACK_GUARD = 32;
 async function emitTurnTree(sessionMeta, turn, ctx, opts, visited, depth, tracing, already, emittedIds, deps) {
 	let n = 0;
 	for (const span of planTurnSpans(sessionMeta, turn, ctx, opts)) {
-		if (!span.complete || already.has(span.spanId)) continue;
+		if (!span.complete) continue;
+		const isTraceRoot = span.parentSpanId === null;
+		if (already.has(span.spanId) && !isTraceRoot) continue;
 		emitSpan(tracing, span);
 		emittedIds.push(span.spanId);
 		already.add(span.spanId);
