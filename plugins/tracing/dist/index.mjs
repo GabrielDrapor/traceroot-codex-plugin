@@ -66,8 +66,8 @@ function envFirst(...keys) {
 		if (v !== void 0 && v !== "") return v;
 	}
 }
-const codexHome = process.env.CODEX_HOME ?? path.join(os$2.homedir(), ".codex");
 async function getConfig(cwd = process.cwd()) {
+	const codexHome = process.env.CODEX_HOME ?? path.join(os$2.homedir(), ".codex");
 	const globalJson = await readJson(path.join(codexHome, "traceroot.json"));
 	const projectJson = await readJson(path.join(cwd, ".codex", "traceroot.json"));
 	const j = {
@@ -5713,14 +5713,6 @@ var init_esm = __esmMin((() => {
 	init_shared_configuration();
 	init_legacy_node_configuration();
 	init_otlp_network_export_delegate();
-}));
-
-//#endregion
-//#region ../../node_modules/.pnpm/@opentelemetry+exporter-trace-otlp-http@0.205.0_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/exporter-trace-otlp-http/build/src/version.js
-var require_version$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
-	Object.defineProperty(exports, "__esModule", { value: true });
-	exports.VERSION = void 0;
-	exports.VERSION = "0.205.0";
 }));
 
 //#endregion
@@ -26544,6 +26536,14 @@ var require_src$6 = /* @__PURE__ */ __commonJSMin(((exports) => {
 }));
 
 //#endregion
+//#region ../../node_modules/.pnpm/@opentelemetry+exporter-trace-otlp-proto@0.205.0_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/exporter-trace-otlp-proto/build/src/version.js
+var require_version$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
+	Object.defineProperty(exports, "__esModule", { value: true });
+	exports.VERSION = void 0;
+	exports.VERSION = "0.205.0";
+}));
+
+//#endregion
 //#region ../../node_modules/.pnpm/@opentelemetry+otlp-exporter-base@0.205.0_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/otlp-exporter-base/build/esm/util.js
 /**
 * Parses headers from config leaving only those that have defined values
@@ -27002,30 +27002,30 @@ var init_index_node_http = __esmMin((() => {
 }));
 
 //#endregion
-//#region ../../node_modules/.pnpm/@opentelemetry+exporter-trace-otlp-http@0.205.0_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/exporter-trace-otlp-http/build/src/platform/node/OTLPTraceExporter.js
+//#region ../../node_modules/.pnpm/@opentelemetry+exporter-trace-otlp-proto@0.205.0_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/exporter-trace-otlp-proto/build/src/platform/node/OTLPTraceExporter.js
 var require_OTLPTraceExporter = /* @__PURE__ */ __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: true });
 	exports.OTLPTraceExporter = void 0;
 	const otlp_exporter_base_1 = (init_esm(), __toCommonJS(esm_exports));
-	const version_1 = require_version$2();
 	const otlp_transformer_1 = require_src$6();
+	const version_1 = require_version$2();
 	const node_http_1 = (init_index_node_http(), __toCommonJS(index_node_http_exports));
 	/**
-	* Collector Trace Exporter for Node
+	* Collector Trace Exporter for Node with protobuf
 	*/
 	var OTLPTraceExporter = class extends otlp_exporter_base_1.OTLPExporterBase {
 		constructor(config = {}) {
 			super((0, node_http_1.createOtlpHttpExportDelegate)((0, node_http_1.convertLegacyHttpOptions)(config, "TRACES", "v1/traces", {
 				"User-Agent": `OTel-OTLP-Exporter-JavaScript/${version_1.VERSION}`,
-				"Content-Type": "application/json"
-			}), otlp_transformer_1.JsonTraceSerializer));
+				"Content-Type": "application/x-protobuf"
+			}), otlp_transformer_1.ProtobufTraceSerializer));
 		}
 	};
 	exports.OTLPTraceExporter = OTLPTraceExporter;
 }));
 
 //#endregion
-//#region ../../node_modules/.pnpm/@opentelemetry+exporter-trace-otlp-http@0.205.0_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/exporter-trace-otlp-http/build/src/platform/node/index.js
+//#region ../../node_modules/.pnpm/@opentelemetry+exporter-trace-otlp-proto@0.205.0_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/exporter-trace-otlp-proto/build/src/platform/node/index.js
 var require_node$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: true });
 	exports.OTLPTraceExporter = void 0;
@@ -27039,7 +27039,7 @@ var require_node$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
 }));
 
 //#endregion
-//#region ../../node_modules/.pnpm/@opentelemetry+exporter-trace-otlp-http@0.205.0_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/exporter-trace-otlp-http/build/src/platform/index.js
+//#region ../../node_modules/.pnpm/@opentelemetry+exporter-trace-otlp-proto@0.205.0_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/exporter-trace-otlp-proto/build/src/platform/index.js
 var require_platform$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: true });
 	exports.OTLPTraceExporter = void 0;
@@ -27053,7 +27053,7 @@ var require_platform$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
 }));
 
 //#endregion
-//#region ../../node_modules/.pnpm/@opentelemetry+exporter-trace-otlp-http@0.205.0_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/exporter-trace-otlp-http/build/src/index.js
+//#region ../../node_modules/.pnpm/@opentelemetry+exporter-trace-otlp-proto@0.205.0_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/exporter-trace-otlp-proto/build/src/index.js
 var require_src$5 = /* @__PURE__ */ __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: true });
 	exports.OTLPTraceExporter = void 0;
@@ -32111,9 +32111,9 @@ function emitSpan(tracing, s) {
 * To bound cost we scan only the newest ~3 day-directories under
 * sessions/YYYY/MM/DD rather than the full tree.
 */
-async function findSubagentRollout(threadId, codexHome$1) {
+async function findSubagentRollout(threadId, codexHome) {
 	try {
-		const home = codexHome$1 ?? process.env["CODEX_HOME"] ?? path.join(os$2.homedir(), ".codex");
+		const home = codexHome ?? process.env["CODEX_HOME"] ?? path.join(os$2.homedir(), ".codex");
 		const dayDirs = await collectRecentDayDirs(path.join(home, "sessions"), 3);
 		for (const dayDir of dayDirs) {
 			const entries = await fs.readdir(dayDir).catch(() => []);
@@ -32294,7 +32294,7 @@ function parseSession(lines) {
 		}
 		if (line.type === "response_item" && turn) {
 			const p = line.payload;
-			if (p.type === "function_call_output") {
+			if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
 				const tc = toolsByCallId.get(p.call_id);
 				if (tc) {
 					tc.endTime = at;
@@ -32310,6 +32310,19 @@ function parseSession(lines) {
 				let args = p.arguments;
 				try {
 					args = JSON.parse(p.arguments);
+				} catch {}
+				const tc = {
+					callId: p.call_id,
+					name: p.name,
+					args,
+					startTime: at
+				};
+				s.toolCalls.push(tc);
+				toolsByCallId.set(p.call_id, tc);
+			} else if (p.type === "custom_tool_call") {
+				let args = p.input;
+				try {
+					args = JSON.parse(p.input);
 				} catch {}
 				const tc = {
 					callId: p.call_id,

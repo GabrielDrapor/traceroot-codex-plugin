@@ -105,3 +105,30 @@ describe("parseSession", () => {
     expect(tc.endTime).toBeGreaterThan(tc.startTime);
   });
 });
+
+describe("parseSession custom_tool_call (apply_patch)", () => {
+  it("captures apply_patch (custom_tool_call) as a tool with patch enrichment", () => {
+    const patch = "*** Begin Patch\n*** Update File: calc.py\n@@\n-    return a-b\n+    return a+b\n*** End Patch\n";
+    const lines: RolloutLine[] = [
+      { timestamp: ts(0), type: "session_meta", payload: { id: "s1" } },
+      { timestamp: ts(1), type: "event_msg", payload: { type: "task_started", turn_id: "t1" } },
+      { timestamp: ts(2), type: "turn_context", payload: { turn_id: "t1", model: "gpt-5.5" } },
+      { timestamp: ts(3), type: "event_msg", payload: { type: "user_message", message: "fix the bug" } },
+      { timestamp: ts(4), type: "response_item", payload: { type: "custom_tool_call", call_id: "p1", name: "apply_patch", input: patch } },
+      { timestamp: ts(5), type: "response_item", payload: { type: "custom_tool_call_output", call_id: "p1", output: "Success. Updated calc.py" } },
+      { timestamp: ts(6), type: "event_msg", payload: { type: "patch_apply_end", call_id: "p1", status: "completed", success: true } },
+      { timestamp: ts(7), type: "event_msg", payload: { type: "token_count", info: { last_token_usage: { input_tokens: 100, output_tokens: 10 } } } },
+      { timestamp: ts(8), type: "event_msg", payload: { type: "task_complete", turn_id: "t1" } },
+    ];
+    const { turns } = parseSession(lines);
+    const tools = turns[0]!.steps.flatMap((s) => s.toolCalls);
+    expect(tools).toHaveLength(1);
+    const tc = tools[0]!;
+    expect(tc.name).toBe("apply_patch");
+    expect(tc.args).toBe(patch); // non-JSON input kept as raw string
+    expect(tc.output).toBe("Success. Updated calc.py");
+    expect(tc.kind).toBe("patch"); // enriched from patch_apply_end
+    expect(tc.status).toBe("completed");
+    expect(tc.endTime).toBeGreaterThan(tc.startTime);
+  });
+});

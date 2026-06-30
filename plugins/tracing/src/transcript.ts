@@ -143,7 +143,7 @@ export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
 
     if (line.type === "response_item" && turn) {
       const p = line.payload as ResponseItem;
-      if (p.type === "function_call_output") {
+      if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
         // Tool output can arrive after token_count closed the step; never open a new
         // step for it — just attach to the toolCall recorded in its original step.
         const tc = toolsByCallId.get(p.call_id);
@@ -158,6 +158,14 @@ export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
       } else if (p.type === "function_call") {
         let args: unknown = p.arguments;
         try { args = JSON.parse(p.arguments); } catch { /* keep string */ }
+        const tc: ToolCall = { callId: p.call_id, name: p.name, args, startTime: at };
+        s.toolCalls.push(tc);
+        toolsByCallId.set(p.call_id, tc);
+      } else if (p.type === "custom_tool_call") {
+        // Codex emits some tools (e.g. apply_patch) as custom_tool_call with the
+        // payload in `input` (often non-JSON text, e.g. a patch). Treat it as a tool.
+        let args: unknown = p.input;
+        try { args = JSON.parse(p.input); } catch { /* keep raw string */ }
         const tc: ToolCall = { callId: p.call_id, name: p.name, args, startTime: at };
         s.toolCalls.push(tc);
         toolsByCallId.set(p.call_id, tc);

@@ -1,11 +1,22 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConfig } from "../src/config.js";
 
 const saved = { ...process.env };
+let tmpHome: string;
 beforeEach(() => {
   for (const k of Object.keys(process.env)) if (k.startsWith("TRACE")) delete process.env[k];
+  // Isolate from the real ~/.codex/traceroot.json so the test doesn't read the
+  // developer's actual global config.
+  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "tr-codexhome-"));
+  process.env.CODEX_HOME = tmpHome;
 });
-afterEach(() => { process.env = { ...saved }; });
+afterEach(() => {
+  process.env = { ...saved };
+  if (tmpHome) fs.rmSync(tmpHome, { recursive: true, force: true });
+});
 
 describe("getConfig", () => {
   it("disabled by default without keys", async () => {

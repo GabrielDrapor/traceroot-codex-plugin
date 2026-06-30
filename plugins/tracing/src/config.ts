@@ -29,9 +29,10 @@ function envFirst(...keys: string[]): string | undefined {
   return undefined;
 }
 
-const codexHome = process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
-
 export async function getConfig(cwd: string = process.cwd()): Promise<Config> {
+  // Resolve CODEX_HOME at call time (not module load) so it always reflects the
+  // current env and is isolatable in tests.
+  const codexHome = process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
   const globalJson = await readJson(path.join(codexHome, "traceroot.json"));
   const projectJson = await readJson(path.join(cwd, ".codex", "traceroot.json"));
   const j = { ...globalJson, ...projectJson };
