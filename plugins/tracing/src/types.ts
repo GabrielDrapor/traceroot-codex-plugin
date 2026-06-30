@@ -115,9 +115,7 @@ export type Turn = {
   userInput?: string;
   finalOutput?: string;
   steps: ModelStep[];
-  /** @deprecated use subagents; optional + read nowhere — kept only for backward compat */
-  subagentThreadIds?: string[];
-  /** Subagent spawns captured from collab_agent_spawn_end events. */
+  /** Subagent spawns captured from spawn_agent / collab_agent_spawn_end. */
   subagents?: SubagentRef[];
   completed: boolean;
   aborted: boolean;

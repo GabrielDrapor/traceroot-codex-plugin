@@ -7,7 +7,6 @@ const sessionMeta: SessionMeta = { sessionId: "sess-abc" };
 const turn: Turn = {
   turnId: "turn-1", startTime: 1000, endTime: 4000, model: "gpt-5.5",
   userInput: "list the files", finalOutput: "two files", completed: true, aborted: false,
-  subagentThreadIds: [],
   steps: [{
     index: 0, startTime: 1500, endTime: 3200,
     text: "two files", reasoning: "ls",

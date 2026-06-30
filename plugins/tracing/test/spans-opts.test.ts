@@ -11,7 +11,6 @@ const sessionMeta: SessionMeta = { sessionId: "sess-opts" };
 const turn: Turn = {
   turnId: "opts-turn-1", startTime: 2000, endTime: 5000, model: "gpt-5.5",
   userInput: "hello", finalOutput: "world", completed: true, aborted: false,
-  subagentThreadIds: [],
   steps: [{
     index: 0, startTime: 2500, endTime: 4000,
     text: "world",

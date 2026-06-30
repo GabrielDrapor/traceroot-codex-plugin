@@ -13,7 +13,7 @@ describe("types", () => {
 
   it("Turn carries steps and subagent ids", () => {
     const t: Turn = {
-      startTime: 0, endTime: 1, steps: [], subagentThreadIds: [],
+      startTime: 0, endTime: 1, steps: [],
       completed: true, aborted: false,
     };
     expect(t.steps).toHaveLength(0);

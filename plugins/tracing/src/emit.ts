@@ -34,7 +34,7 @@ async function emitTurnTree(
   tracing: Tracing,
   already: Set<string>,
   emittedIds: string[],
-  deps: Deps,
+  findSubagent: Deps["findSubagent"],
 ): Promise<number> {
   let n = 0;
 
@@ -71,7 +71,7 @@ async function emitTurnTree(
     // (that would leave already-emitted parent spans un-marked → re-emit churn next hook).
     // On any error we log and skip to the next subagent.
     try {
-      const childPath = await deps.findSubagent(sub.threadId);
+      const childPath = await findSubagent(sub.threadId);
       debugLog(`subagent ${sub.threadId} spawnCall=${sub.spawnCallId}: childPath=${childPath ?? "NOT FOUND"}`);
       if (!childPath) continue; // child rollout not on disk yet — try again next hook
 
@@ -88,7 +88,7 @@ async function emitTurnTree(
       for (const childTurn of child.turns) {
         n += await emitTurnTree(
           child.sessionMeta, childTurn, ctx, childOpts, visited, depth + 1,
-          tracing, already, emittedIds, deps,
+          tracing, already, emittedIds, findSubagent,
         );
       }
     } catch (err) {
@@ -114,9 +114,11 @@ export async function dispatch(
   const { sessionMeta, turns } = parseSession(lines);
 
   // A subagent session is emitted NESTED under its parent's trace (via the
-  // parent's spawn_agent tool). Codex also fires hooks for the subagent session
-  // itself; emitting here too would duplicate it as a redundant standalone trace.
-  // Skip — the parent owns it.
+  // parent's spawn_agent tool). Codex fires PostToolUse/Stop on the subagent
+  // session itself too; emitting here would duplicate it as a redundant
+  // standalone trace — skip, the parent owns it. (Note: the SubagentStop hook
+  // carries transcript_path = the PARENT session, so it does NOT hit this guard;
+  // it usefully re-walks the parent to nest the just-finished subagent live.)
   if (sessionMeta.threadSource === "subagent" || sessionMeta.parentThreadId) {
     debugLog(`subagent session ${sessionMeta.sessionId}; skipping standalone emit (nested under parent)`);
     return { emitted: 0 };
@@ -134,17 +136,11 @@ export async function dispatch(
   // One visited set per dispatch so a thread referenced from multiple turns is emitted once.
   const visited = new Set<string>();
 
-  const resolvedDeps: Deps = {
-    buildTracing: buildTracingFn,
-    getGit,
-    findSubagent: findSubagentFn,
-  };
-
   try {
     for (const turn of turns) {
       emitted += await emitTurnTree(
         sessionMeta, turn, ctx, {}, visited, 0,
-        tracing, already, emittedIds, resolvedDeps,
+        tracing, already, emittedIds, findSubagentFn,
       );
     }
   } finally {

@@ -31884,16 +31884,19 @@ var PrimedIdGenerator = class {
 };
 
 //#endregion
+//#region src/sdk.ts
+const SDK_NAME = "traceroot-codex-plugin";
+const SDK_VERSION = "0.1.0";
+
+//#endregion
 //#region src/exporter.ts
-const SDK_NAME$1 = "traceroot-codex-plugin";
-const SDK_VERSION$1 = "0.1.0";
 function buildTracingWith(processor, idGen) {
 	const provider = new import_src$2.NodeTracerProvider({
 		idGenerator: idGen,
 		spanProcessors: [processor]
 	});
 	return {
-		tracer: provider.getTracer(SDK_NAME$1, SDK_VERSION$1),
+		tracer: provider.getTracer(SDK_NAME, SDK_VERSION),
 		idGen,
 		shutdown: async () => {
 			await provider.forceFlush();
@@ -31906,8 +31909,8 @@ function buildTracing(config) {
 		url: `${config.hostUrl}/api/v1/public/traces`,
 		headers: {
 			Authorization: `Bearer ${config.apiKey ?? ""}`,
-			"x-traceroot-sdk-name": SDK_NAME$1,
-			"x-traceroot-sdk-version": SDK_VERSION$1
+			"x-traceroot-sdk-name": SDK_NAME,
+			"x-traceroot-sdk-version": SDK_VERSION
 		},
 		compression: "gzip"
 	}), {
@@ -32002,8 +32005,6 @@ function truncate(s, max) {
 //#region src/spans.ts
 init_esm$2();
 const str = (v, max) => truncate(typeof v === "string" ? v : JSON.stringify(v ?? ""), max);
-const SDK_NAME = "traceroot-codex-plugin";
-const SDK_VERSION = "0.1.0";
 function commonTrace(attrs, sessionMeta, ctx) {
 	attrs["traceroot.sdk.name"] = SDK_NAME;
 	attrs["traceroot.sdk.version"] = SDK_VERSION;
@@ -32409,7 +32410,7 @@ function parseSession(lines) {
 //#region src/emit.ts
 const STACK_GUARD = 32;
 /** Emit all complete, not-yet-seen spans for `turn` and recurse into its subagents. */
-async function emitTurnTree(sessionMeta, turn, ctx, opts, visited, depth, tracing, already, emittedIds, deps) {
+async function emitTurnTree(sessionMeta, turn, ctx, opts, visited, depth, tracing, already, emittedIds, findSubagent) {
 	let n = 0;
 	for (const span of planTurnSpans(sessionMeta, turn, ctx, opts)) {
 		if (!span.complete) continue;
@@ -32431,7 +32432,7 @@ async function emitTurnTree(sessionMeta, turn, ctx, opts, visited, depth, tracin
 		if (visited.has(sub.threadId)) continue;
 		visited.add(sub.threadId);
 		try {
-			const childPath = await deps.findSubagent(sub.threadId);
+			const childPath = await findSubagent(sub.threadId);
 			debugLog(`subagent ${sub.threadId} spawnCall=${sub.spawnCallId}: childPath=${childPath ?? "NOT FOUND"}`);
 			if (!childPath) continue;
 			const child = parseSession(await readRollout(childPath));
@@ -32441,7 +32442,7 @@ async function emitTurnTree(sessionMeta, turn, ctx, opts, visited, depth, tracin
 				rootParentSpanId: makeSpanId(parentSeed + sub.spawnCallId),
 				seedPrefix: sub.threadId + ":"
 			};
-			for (const childTurn of child.turns) n += await emitTurnTree(child.sessionMeta, childTurn, ctx, childOpts, visited, depth + 1, tracing, already, emittedIds, deps);
+			for (const childTurn of child.turns) n += await emitTurnTree(child.sessionMeta, childTurn, ctx, childOpts, visited, depth + 1, tracing, already, emittedIds, findSubagent);
 		} catch (err) {
 			debugLog(`subagent ${sub.threadId} resolve/read/parse failed; skipping: ${String(err)}`);
 			continue;
@@ -32475,13 +32476,8 @@ async function dispatch(hook, config, deps) {
 	let emitted = 0;
 	const emittedIds = [];
 	const visited = /* @__PURE__ */ new Set();
-	const resolvedDeps = {
-		buildTracing: buildTracingFn,
-		getGit,
-		findSubagent: findSubagentFn
-	};
 	try {
-		for (const turn of turns) emitted += await emitTurnTree(sessionMeta, turn, ctx, {}, visited, 0, tracing, already, emittedIds, resolvedDeps);
+		for (const turn of turns) emitted += await emitTurnTree(sessionMeta, turn, ctx, {}, visited, 0, tracing, already, emittedIds, findSubagentFn);
 	} finally {
 		await tracing.shutdown();
 	}

@@ -9,9 +9,7 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import type { Config } from "./config.js";
 import { PrimedIdGenerator } from "./ids.js";
-
-const SDK_NAME = "traceroot-codex-plugin";
-const SDK_VERSION = "0.1.0";
+import { SDK_NAME, SDK_VERSION } from "./sdk.js";
 
 export type Tracing = { tracer: Tracer; idGen: PrimedIdGenerator; shutdown: () => Promise<void> };
 

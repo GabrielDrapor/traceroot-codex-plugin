@@ -1,6 +1,7 @@
 import { ROOT_CONTEXT, type SpanContext, SpanKind, TraceFlags, trace } from "@opentelemetry/api";
 import type { Tracing } from "./exporter.js";
 import { makeSpanId, makeTraceId } from "./ids.js";
+import { SDK_NAME, SDK_VERSION } from "./sdk.js";
 import { mapUsage } from "./tokens.js";
 import type { ModelStep, SessionMeta, ToolCall, Turn } from "./types.js";
 import { truncate } from "./util.js";
@@ -26,11 +27,6 @@ export type EmittableSpan = {
 
 const str = (v: unknown, max: number): string =>
   truncate(typeof v === "string" ? v : JSON.stringify(v ?? ""), max);
-
-// Identifies this plugin as the emitting SDK (shown in the Traceroot UI), the
-// same way the Claude Code plugin sets traceroot.sdk.name/version.
-const SDK_NAME = "traceroot-codex-plugin";
-const SDK_VERSION = "0.1.0";
 
 function commonTrace(attrs: Record<string, string | number>, sessionMeta: SessionMeta, ctx: EmitCtx): void {
   attrs["traceroot.sdk.name"] = SDK_NAME;
