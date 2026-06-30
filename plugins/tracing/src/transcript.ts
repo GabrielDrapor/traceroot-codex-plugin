@@ -56,12 +56,25 @@ function messageText(content: unknown): string | undefined {
   return parts.length ? parts.join("") : undefined;
 }
 
+/** Codex's spawn_agent tool returns {"agent_id":"<thread id>","nickname":"..."}. */
+function parseSpawnAgentId(output: unknown): string | undefined {
+  let obj: unknown = output;
+  if (typeof output === "string") {
+    try { obj = JSON.parse(output); } catch { return undefined; }
+  }
+  const id = (obj as { agent_id?: unknown } | null)?.agent_id;
+  return typeof id === "string" && id ? id : undefined;
+}
+
 export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; turns: Turn[] } {
   let sessionMeta: SessionMeta = { sessionId: "" };
   const turns: Turn[] = [];
   let turn: Turn | undefined;
   let step: ModelStep | undefined;
   const toolsByCallId = new Map<string, ToolCall>();
+  // call_ids of spawn_agent tool calls, so we can read the child thread id from
+  // the matching function_call_output ({"agent_id": "..."}).
+  const spawnAgentCallIds = new Set<string>();
 
   const ensureStep = (t: Turn, at: number): ModelStep => {
     if (!step) {
@@ -99,6 +112,7 @@ export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
           };
           step = undefined;
           toolsByCallId.clear();
+          spawnAgentCallIds.clear();
           turns.push(turn);
           break;
         case "user_message":
@@ -148,6 +162,13 @@ export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
         // step for it — just attach to the toolCall recorded in its original step.
         const tc = toolsByCallId.get(p.call_id);
         if (tc) { tc.endTime = at; tc.output = p.output; }
+        // spawn_agent's output carries the child thread id: {"agent_id":"...."}.
+        // Record it (with the spawn tool's call_id) so the subagent's spans nest
+        // under this spawn_agent TOOL span, in the same trace.
+        if (turn && spawnAgentCallIds.has(p.call_id)) {
+          const threadId = parseSpawnAgentId(p.output);
+          if (threadId) (turn.subagents ??= []).push({ threadId, spawnCallId: p.call_id });
+        }
         continue;
       }
       const s = ensureStep(turn, at);
@@ -161,6 +182,9 @@ export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
         const tc: ToolCall = { callId: p.call_id, name: p.name, args, startTime: at };
         s.toolCalls.push(tc);
         toolsByCallId.set(p.call_id, tc);
+        // Codex multi-agent v1: spawn_agent launches a subagent; its child thread
+        // id arrives in the matching function_call_output.
+        if (p.name === "spawn_agent") spawnAgentCallIds.add(p.call_id);
       } else if (p.type === "custom_tool_call") {
         // Codex emits some tools (e.g. apply_patch) as custom_tool_call with the
         // payload in `input` (often non-JSON text, e.g. a patch). Treat it as a tool.

@@ -66,10 +66,12 @@ async function emitTurnTree(
     // On any error we log and skip to the next subagent.
     try {
       const childPath = await deps.findSubagent(sub.threadId);
+      debugLog(`subagent ${sub.threadId} spawnCall=${sub.spawnCallId}: childPath=${childPath ?? "NOT FOUND"}`);
       if (!childPath) continue; // child rollout not on disk yet — try again next hook
 
       const childLines = await readRollout(childPath);
       const child = parseSession(childLines);
+      debugLog(`subagent ${sub.threadId}: parsed ${child.turns.length} turn(s), session=${child.sessionMeta.sessionId}`);
 
       const childOpts: PlanOpts = {
         traceId,                                          // SAME trace as parent

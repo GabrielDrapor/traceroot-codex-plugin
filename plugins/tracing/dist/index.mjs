@@ -31902,7 +31902,7 @@ function buildTracingWith(processor, idGen) {
 	};
 }
 function buildTracing(config) {
-	return buildTracingWith(new import_src$1.SimpleSpanProcessor(new import_src.OTLPTraceExporter({
+	return buildTracingWith(new import_src$1.BatchSpanProcessor(new import_src.OTLPTraceExporter({
 		url: `${config.hostUrl}/api/v1/public/traces`,
 		headers: {
 			Authorization: `Bearer ${config.apiKey ?? ""}`,
@@ -31910,7 +31910,11 @@ function buildTracing(config) {
 			"x-traceroot-sdk-version": SDK_VERSION
 		},
 		compression: "gzip"
-	})), new PrimedIdGenerator());
+	}), {
+		maxQueueSize: 4096,
+		maxExportBatchSize: 1024,
+		scheduledDelayMillis: 3e4
+	}), new PrimedIdGenerator());
 }
 
 //#endregion
@@ -32200,12 +32204,24 @@ function messageText(content) {
 	const parts = content.filter((c) => typeof c?.text === "string").map((c) => c.text);
 	return parts.length ? parts.join("") : void 0;
 }
+/** Codex's spawn_agent tool returns {"agent_id":"<thread id>","nickname":"..."}. */
+function parseSpawnAgentId(output) {
+	let obj = output;
+	if (typeof output === "string") try {
+		obj = JSON.parse(output);
+	} catch {
+		return;
+	}
+	const id = obj?.agent_id;
+	return typeof id === "string" && id ? id : void 0;
+}
 function parseSession(lines) {
 	let sessionMeta = { sessionId: "" };
 	const turns = [];
 	let turn;
 	let step;
 	const toolsByCallId = /* @__PURE__ */ new Map();
+	const spawnAgentCallIds = /* @__PURE__ */ new Set();
 	const ensureStep = (t, at) => {
 		if (!step) {
 			step = {
@@ -32251,6 +32267,7 @@ function parseSession(lines) {
 					};
 					step = void 0;
 					toolsByCallId.clear();
+					spawnAgentCallIds.clear();
 					turns.push(turn);
 					break;
 				case "user_message":
@@ -32300,6 +32317,13 @@ function parseSession(lines) {
 					tc.endTime = at;
 					tc.output = p.output;
 				}
+				if (turn && spawnAgentCallIds.has(p.call_id)) {
+					const threadId = parseSpawnAgentId(p.output);
+					if (threadId) (turn.subagents ??= []).push({
+						threadId,
+						spawnCallId: p.call_id
+					});
+				}
 				continue;
 			}
 			const s = ensureStep(turn, at);
@@ -32319,6 +32343,7 @@ function parseSession(lines) {
 				};
 				s.toolCalls.push(tc);
 				toolsByCallId.set(p.call_id, tc);
+				if (p.name === "spawn_agent") spawnAgentCallIds.add(p.call_id);
 			} else if (p.type === "custom_tool_call") {
 				let args = p.input;
 				try {
@@ -32367,8 +32392,10 @@ async function emitTurnTree(sessionMeta, turn, ctx, opts, visited, depth, tracin
 		visited.add(sub.threadId);
 		try {
 			const childPath = await deps.findSubagent(sub.threadId);
+			debugLog(`subagent ${sub.threadId} spawnCall=${sub.spawnCallId}: childPath=${childPath ?? "NOT FOUND"}`);
 			if (!childPath) continue;
 			const child = parseSession(await readRollout(childPath));
+			debugLog(`subagent ${sub.threadId}: parsed ${child.turns.length} turn(s), session=${child.sessionMeta.sessionId}`);
 			const childOpts = {
 				traceId,
 				rootParentSpanId: makeSpanId(parentSeed + sub.spawnCallId),

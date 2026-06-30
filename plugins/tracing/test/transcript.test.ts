@@ -132,3 +132,24 @@ describe("parseSession custom_tool_call (apply_patch)", () => {
     expect(tc.endTime).toBeGreaterThan(tc.startTime);
   });
 });
+
+describe("parseSession spawn_agent (Codex multi-agent v1)", () => {
+  it("records a subagent ref from spawn_agent + its function_call_output agent_id", () => {
+    const lines: RolloutLine[] = [
+      { timestamp: ts(0), type: "session_meta", payload: { id: "parent" } },
+      { timestamp: ts(1), type: "event_msg", payload: { type: "task_started", turn_id: "t1" } },
+      { timestamp: ts(2), type: "turn_context", payload: { turn_id: "t1", model: "gpt-5.5" } },
+      { timestamp: ts(3), type: "response_item", payload: { type: "function_call", call_id: "spawn1", name: "spawn_agent", arguments: "{\"agent_type\":\"worker\",\"message\":\"do x\"}" } },
+      { timestamp: ts(4), type: "response_item", payload: { type: "function_call_output", call_id: "spawn1", output: "{\"agent_id\":\"child-thread-9\",\"nickname\":\"Ada\"}" } },
+      { timestamp: ts(5), type: "event_msg", payload: { type: "token_count", info: { last_token_usage: { input_tokens: 50, output_tokens: 5 } } } },
+      { timestamp: ts(6), type: "event_msg", payload: { type: "task_complete", turn_id: "t1" } },
+    ];
+    const { turns } = parseSession(lines);
+    const turn = turns[0]!;
+    // spawn_agent is still a TOOL call (so it gets its own span)...
+    const spawnTool = turn.steps.flatMap((s) => s.toolCalls).find((t) => t.name === "spawn_agent");
+    expect(spawnTool?.callId).toBe("spawn1");
+    // ...and the subagent ref links the child thread to the spawn tool's call id.
+    expect(turn.subagents).toEqual([{ threadId: "child-thread-9", spawnCallId: "spawn1" }]);
+  });
+});
