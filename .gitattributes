@@ -1,0 +1,4 @@
+# The committed bundle is a generated artifact (Codex runs it directly — there is
+# no build step on install). Keep it tracked, but treat it as generated: collapse
+# it in PR diffs and exclude it from GitHub language stats.
+plugins/tracing/dist/index.mjs linguist-generated=true -diff
