@@ -76,10 +76,10 @@ async function getConfig(cwd = process.cwd()) {
 	};
 	const truthy = (v) => v === true || v === "true" || v === "1";
 	const enabledFlag = envFirst("TRACE_TO_TRACEROOT") ?? (j.enabled !== void 0 ? String(j.enabled) : void 0);
-	const apiKey = envFirst("TRACEROOT_CODEX_API_KEY", "TRACEROOT_API_KEY") ?? j.api_key;
+	const apiKey = envFirst("TRACEROOT_CODEX_API_KEY", "TRACEROOT_API_KEY") ?? globalJson.api_key;
 	const config = {
 		apiKey,
-		hostUrl: envFirst("TRACEROOT_CODEX_HOST_URL", "TRACEROOT_HOST_URL") ?? j.host_url ?? "https://app.traceroot.ai",
+		hostUrl: envFirst("TRACEROOT_CODEX_HOST_URL", "TRACEROOT_HOST_URL") ?? globalJson.host_url ?? "https://app.traceroot.ai",
 		environment: envFirst("TRACEROOT_ENVIRONMENT") ?? j.environment,
 		userId: envFirst("TRACEROOT_CODEX_USER_ID") ?? j.user_id,
 		maxChars: ((n) => Number.isFinite(n) ? n : 2e4)(Number(envFirst("TRACEROOT_CODEX_MAX_CHARS") ?? j.max_chars ?? 2e4)),
@@ -31946,6 +31946,26 @@ async function getGitContext(cwd) {
 }
 
 //#endregion
+//#region src/util.ts
+let DEBUG = false;
+function setDebug(b) {
+	DEBUG = b;
+}
+function debugLog(...args) {
+	if (DEBUG) console.error("[traceroot-codex]", ...args);
+}
+async function readStdin() {
+	const chunks = [];
+	for await (const c of process.stdin) chunks.push(c);
+	const raw = Buffer.concat(chunks).toString("utf-8").trim();
+	return JSON.parse(raw || "{}");
+}
+function truncate(s, max) {
+	if (s.length <= max) return s;
+	return `${s.slice(0, max)}…[truncated ${s.length - max} chars]`;
+}
+
+//#endregion
 //#region src/sidecar.ts
 const suffix = ".traceroot";
 async function loadEmittedSpanIds(rolloutFile) {
@@ -31953,8 +31973,8 @@ async function loadEmittedSpanIds(rolloutFile) {
 		const data = await fs.readFile(`${rolloutFile}${suffix}`, "utf-8");
 		return new Set(data.split("\n").filter(Boolean));
 	} catch (error) {
-		if (error.code === "ENOENT") return /* @__PURE__ */ new Set();
-		throw error;
+		if (error.code !== "ENOENT") debugLog("sidecar read failed; assuming empty:", error);
+		return /* @__PURE__ */ new Set();
 	}
 }
 async function markSpanEmitted(rolloutFile, spanId) {
@@ -31979,26 +31999,6 @@ function mapUsage(u) {
 	if (typeof u.cached_input_tokens === "number") out["llm.token_count.prompt_details.cache_read"] = u.cached_input_tokens;
 	if (typeof u.reasoning_output_tokens === "number") out["llm.token_count.completion_details.reasoning"] = u.reasoning_output_tokens;
 	return out;
-}
-
-//#endregion
-//#region src/util.ts
-let DEBUG = false;
-function setDebug(b) {
-	DEBUG = b;
-}
-function debugLog(...args) {
-	if (DEBUG) console.error("[traceroot-codex]", ...args);
-}
-async function readStdin() {
-	const chunks = [];
-	for await (const c of process.stdin) chunks.push(c);
-	const raw = Buffer.concat(chunks).toString("utf-8").trim();
-	return JSON.parse(raw || "{}");
-}
-function truncate(s, max) {
-	if (s.length <= max) return s;
-	return `${s.slice(0, max)}…[truncated ${s.length - max} chars]`;
 }
 
 //#endregion
@@ -32509,7 +32509,10 @@ async function runHook() {
 		await dispatch(hook, config);
 	} catch (error) {
 		debugLog("dispatch failed:", error);
-		if (config.failOnError) throw error;
+		if (config.failOnError) {
+			process.exitCode = 1;
+			throw error;
+		}
 	}
 }
 runHook().catch((error) => {

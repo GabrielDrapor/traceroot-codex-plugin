@@ -79,4 +79,21 @@ describe("runHook", () => {
     mocks.dispatchMock.mockRejectedValue(new Error("boom"));
     await expect(runHook()).rejects.toThrow("boom");
   });
+
+  // failOnError resolved from JSON config (not an env var) must still set the
+  // exit code — the fix is that runHook honors resolved config directly rather
+  // than the module-level handler re-deriving it from process.env.
+  it("sets process.exitCode=1 from resolved config, not just env vars", async () => {
+    const prev = process.exitCode;
+    process.exitCode = 0;
+    try {
+      mocks.readStdinMock.mockResolvedValue({ transcript_path: "/x/rollout.jsonl" });
+      mocks.getConfigMock.mockResolvedValue({ ...enabledConfig, failOnError: true });
+      mocks.dispatchMock.mockRejectedValue(new Error("boom"));
+      await expect(runHook()).rejects.toThrow("boom");
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = prev;
+    }
+  });
 });

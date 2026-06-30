@@ -24,4 +24,15 @@ describe("sidecar", () => {
     expect(ids.has("span-b")).toBe(true);
     expect(ids.size).toBe(2);
   });
+
+  it("fails open (empty set) on a non-ENOENT read error", async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "tr-"));
+    const f = path.join(dir, "rollout.jsonl");
+    // Make the sidecar path a directory so readFile throws EISDIR (not ENOENT).
+    // The whole plugin is fail-open: an unreadable sidecar must degrade to
+    // "nothing emitted yet", never abort emission.
+    await fs.mkdir(`${f}.traceroot`);
+    const ids = await loadEmittedSpanIds(f);
+    expect(ids.size).toBe(0);
+  });
 });

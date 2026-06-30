@@ -41,13 +41,19 @@ export async function getConfig(cwd: string = process.cwd()): Promise<Config> {
 
   const enabledFlag =
     envFirst("TRACE_TO_TRACEROOT") ?? (j.enabled !== undefined ? String(j.enabled) : undefined);
-  const apiKey = envFirst("TRACEROOT_CODEX_API_KEY", "TRACEROOT_API_KEY") ?? (j.api_key as string | undefined);
+  // Credential + upload destination come ONLY from env or the GLOBAL config
+  // (~/.codex/traceroot.json) — never the project-local .codex/traceroot.json.
+  // A checked-in project config that could set host_url/api_key would let a
+  // malicious repo redirect authenticated uploads (your env/global key) to an
+  // attacker endpoint. Project-local config may still set non-sensitive fields.
+  const apiKey =
+    envFirst("TRACEROOT_CODEX_API_KEY", "TRACEROOT_API_KEY") ?? (globalJson.api_key as string | undefined);
 
   const config: Config = {
     apiKey,
     hostUrl:
       envFirst("TRACEROOT_CODEX_HOST_URL", "TRACEROOT_HOST_URL") ??
-      (j.host_url as string | undefined) ??
+      (globalJson.host_url as string | undefined) ??
       "https://app.traceroot.ai",
     environment: envFirst("TRACEROOT_ENVIRONMENT") ?? (j.environment as string | undefined),
     userId: envFirst("TRACEROOT_CODEX_USER_ID") ?? (j.user_id as string | undefined),

@@ -27,11 +27,20 @@ export async function runHook(): Promise<void> {
     await dispatch(hook, config);
   } catch (error) {
     debugLog("dispatch failed:", error);
-    if (config.failOnError) throw error;
+    // Honor the RESOLVED config (env OR JSON), not just env vars — set the exit
+    // code here where config is known, then re-throw. The module-level handler
+    // below is only a last resort for errors that escape before config resolves.
+    if (config.failOnError) {
+      process.exitCode = 1;
+      throw error;
+    }
   }
 }
 
-// Self-invoke when executed as the bundled hook entry.
+// Self-invoke when executed as the bundled hook entry. By the time runHook
+// rejects it has already applied resolved-config behavior (debug log + exit
+// code); this is the backstop for the rare error thrown before getConfig — only
+// env vars are available then.
 runHook().catch((error) => {
   if (process.env.TRACEROOT_CODEX_DEBUG === "true") console.error("[traceroot-codex] fatal:", error);
   if (process.env.TRACEROOT_CODEX_FAIL_ON_ERROR === "true") process.exitCode = 1;
