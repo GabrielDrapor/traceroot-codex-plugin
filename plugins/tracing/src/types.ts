@@ -105,6 +105,8 @@ export type ModelStep = {
   usage?: TokenUsage;
 };
 
+export type SubagentRef = { threadId: string; spawnCallId?: string };
+
 export type Turn = {
   turnId?: string;
   startTime: number;
@@ -113,7 +115,10 @@ export type Turn = {
   userInput?: string;
   finalOutput?: string;
   steps: ModelStep[];
+  /** @deprecated use subagents; kept for backward compat with existing tests */
   subagentThreadIds: string[];
+  /** Subagent spawns captured from collab_agent_spawn_end events. */
+  subagents?: SubagentRef[];
   completed: boolean;
   aborted: boolean;
 };

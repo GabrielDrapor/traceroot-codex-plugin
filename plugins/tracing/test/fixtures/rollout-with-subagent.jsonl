@@ -1,0 +1,9 @@
+{"timestamp":"2026-06-30T00:00:00.000Z","type":"session_meta","payload":{"id":"parent-sess","cwd":"/repo","cli_version":"0.140.0","model_provider":"openai"}}
+{"timestamp":"2026-06-30T00:00:01.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"parent-turn-1","started_at":1782294001}}
+{"timestamp":"2026-06-30T00:00:01.500Z","type":"turn_context","payload":{"turn_id":"parent-turn-1","model":"gpt-5.5"}}
+{"timestamp":"2026-06-30T00:00:02.000Z","type":"event_msg","payload":{"type":"user_message","message":"spawn a subagent"}}
+{"timestamp":"2026-06-30T00:00:03.000Z","type":"response_item","payload":{"type":"function_call","name":"spawn_agent","call_id":"spawn-1","arguments":"{\"prompt\":\"do a task\"}"}}
+{"timestamp":"2026-06-30T00:00:04.000Z","type":"event_msg","payload":{"type":"collab_agent_spawn_end","call_id":"spawn-1","new_thread_id":"child-thread-1","status":"completed"}}
+{"timestamp":"2026-06-30T00:00:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Subagent finished."}]}}
+{"timestamp":"2026-06-30T00:00:06.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":500,"output_tokens":30,"total_tokens":530}}}}
+{"timestamp":"2026-06-30T00:00:07.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"parent-turn-1","last_agent_message":"Subagent finished.","completed_at":1782294007}}

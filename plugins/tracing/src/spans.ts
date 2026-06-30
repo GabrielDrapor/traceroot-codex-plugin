@@ -33,10 +33,19 @@ function commonTrace(attrs: Record<string, string | number>, sessionMeta: Sessio
   if (ctx.environment) attrs["traceroot.environment"] = ctx.environment;
 }
 
-export function planTurnSpans(sessionMeta: SessionMeta, turn: Turn, ctx: EmitCtx): EmittableSpan[] {
+export type PlanOpts = {
+  traceId?: string;
+  rootParentSpanId?: string | null;
+  seedPrefix?: string;
+};
+
+export function planTurnSpans(sessionMeta: SessionMeta, turn: Turn, ctx: EmitCtx, opts?: PlanOpts): EmittableSpan[] {
   if (!turn.turnId) return [];
-  const traceId = makeTraceId(sessionMeta.sessionId, turn.turnId);
-  const rootId = makeSpanId(`${turn.turnId}:root`);
+  // When opts is undefined, seed="" so every id is byte-identical to the pre-opts baseline.
+  const seed = opts?.seedPrefix ?? "";
+  const traceId = opts?.traceId ?? makeTraceId(sessionMeta.sessionId, turn.turnId);
+  const rootId = makeSpanId(seed + turn.turnId + ":root");
+  const rootParentSpanId = opts?.rootParentSpanId !== undefined ? opts.rootParentSpanId : null;
   const out: EmittableSpan[] = [];
 
   // Root AGENT span (trace-level attrs live here).
@@ -48,15 +57,15 @@ export function planTurnSpans(sessionMeta: SessionMeta, turn: Turn, ctx: EmitCtx
   if (ctx.git?.repo) rootAttrs["traceroot.git.repo"] = ctx.git.repo;
   if (ctx.git?.ref) rootAttrs["traceroot.git.ref"] = ctx.git.ref;
   out.push({
-    spanId: rootId, parentSpanId: null, traceId, kind: "AGENT",
+    spanId: rootId, parentSpanId: rootParentSpanId, traceId, kind: "AGENT",
     name: "Codex Turn", startTime: turn.startTime, endTime: turn.endTime,
     attributes: rootAttrs, complete: turn.completed,
   });
 
   for (const step of turn.steps) {
-    const stepId = makeSpanId(`${turn.turnId}:step:${step.index}`);
+    const stepId = makeSpanId(seed + turn.turnId + ":step:" + step.index);
     out.push(planStepSpan(sessionMeta, turn, step, stepId, rootId, traceId, ctx));
-    for (const tc of step.toolCalls) out.push(planToolSpan(sessionMeta, tc, stepId, traceId, ctx));
+    for (const tc of step.toolCalls) out.push(planToolSpan(sessionMeta, tc, seed, stepId, traceId, ctx));
   }
   return out;
 }
@@ -79,7 +88,7 @@ function planStepSpan(
 }
 
 function planToolSpan(
-  sessionMeta: SessionMeta, tc: ToolCall, parentSpanId: string, traceId: string, ctx: EmitCtx,
+  sessionMeta: SessionMeta, tc: ToolCall, seed: string, parentSpanId: string, traceId: string, ctx: EmitCtx,
 ): EmittableSpan {
   const attrs: Record<string, string | number> = { "traceroot.span.type": "TOOL" };
   commonTrace(attrs, sessionMeta, ctx);
@@ -92,7 +101,7 @@ function planToolSpan(
   if (tc.error !== undefined) meta["error"] = tc.error;
   if (Object.keys(meta).length > 0) attrs["traceroot.span.metadata"] = JSON.stringify(meta);
   return {
-    spanId: makeSpanId(tc.callId), parentSpanId, traceId, kind: "TOOL",
+    spanId: makeSpanId(seed + tc.callId), parentSpanId, traceId, kind: "TOOL",
     name: tc.name, startTime: tc.startTime, endTime: tc.endTime ?? tc.startTime,
     attributes: attrs, complete: tc.endTime !== undefined,
   };

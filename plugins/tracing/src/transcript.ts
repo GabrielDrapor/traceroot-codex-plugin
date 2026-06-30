@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import type {
-  EventMsgPayload, ModelStep, ResponseItem, RolloutLine, SessionMeta, ToolCall, Turn, TurnContextPayload,
+  EventMsgPayload, ModelStep, ResponseItem, RolloutLine, SessionMeta, SubagentRef, ToolCall, Turn, TurnContextPayload,
 } from "./types.js";
 
 export async function readRollout(file: string): Promise<RolloutLine[]> {
@@ -95,7 +95,7 @@ export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
         case "task_started":
           turn = {
             turnId: p.turn_id ?? undefined, startTime: at, endTime: at,
-            steps: [], subagentThreadIds: [], completed: false, aborted: false,
+            steps: [], subagentThreadIds: [], subagents: [], completed: false, aborted: false,
           };
           step = undefined;
           toolsByCallId.clear();
@@ -121,7 +121,12 @@ export function parseSession(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
           }
           break;
         default:
-          if (turn && typeof p.new_thread_id === "string") turn.subagentThreadIds.push(p.new_thread_id);
+          if (turn && typeof p.new_thread_id === "string") {
+            turn.subagentThreadIds.push(p.new_thread_id);
+            const ref: SubagentRef = { threadId: p.new_thread_id };
+            if (typeof p.call_id === "string") ref.spawnCallId = p.call_id;
+            (turn.subagents ??= []).push(ref);
+          }
           if (turn && p.type.endsWith("_end") && typeof p.call_id === "string") {
             const tc = toolsByCallId.get(p.call_id);
             if (tc) {

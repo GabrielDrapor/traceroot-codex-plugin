@@ -32003,10 +32003,12 @@ function commonTrace(attrs, sessionMeta, ctx) {
 	if (ctx.userId) attrs["traceroot.trace.user_id"] = ctx.userId;
 	if (ctx.environment) attrs["traceroot.environment"] = ctx.environment;
 }
-function planTurnSpans(sessionMeta, turn, ctx) {
+function planTurnSpans(sessionMeta, turn, ctx, opts) {
 	if (!turn.turnId) return [];
-	const traceId = makeTraceId(sessionMeta.sessionId, turn.turnId);
-	const rootId = makeSpanId(`${turn.turnId}:root`);
+	const seed = opts?.seedPrefix ?? "";
+	const traceId = opts?.traceId ?? makeTraceId(sessionMeta.sessionId, turn.turnId);
+	const rootId = makeSpanId(seed + turn.turnId + ":root");
+	const rootParentSpanId = opts?.rootParentSpanId !== void 0 ? opts.rootParentSpanId : null;
 	const out = [];
 	const rootAttrs = { "traceroot.span.type": "AGENT" };
 	commonTrace(rootAttrs, sessionMeta, ctx);
@@ -32017,7 +32019,7 @@ function planTurnSpans(sessionMeta, turn, ctx) {
 	if (ctx.git?.ref) rootAttrs["traceroot.git.ref"] = ctx.git.ref;
 	out.push({
 		spanId: rootId,
-		parentSpanId: null,
+		parentSpanId: rootParentSpanId,
 		traceId,
 		kind: "AGENT",
 		name: "Codex Turn",
@@ -32027,9 +32029,9 @@ function planTurnSpans(sessionMeta, turn, ctx) {
 		complete: turn.completed
 	});
 	for (const step of turn.steps) {
-		const stepId = makeSpanId(`${turn.turnId}:step:${step.index}`);
+		const stepId = makeSpanId(seed + turn.turnId + ":step:" + step.index);
 		out.push(planStepSpan(sessionMeta, turn, step, stepId, rootId, traceId, ctx));
-		for (const tc of step.toolCalls) out.push(planToolSpan(sessionMeta, tc, stepId, traceId, ctx));
+		for (const tc of step.toolCalls) out.push(planToolSpan(sessionMeta, tc, seed, stepId, traceId, ctx));
 	}
 	return out;
 }
@@ -32052,7 +32054,7 @@ function planStepSpan(sessionMeta, turn, step, spanId, parentSpanId, traceId, ct
 		complete: Boolean(step.usage)
 	};
 }
-function planToolSpan(sessionMeta, tc, parentSpanId, traceId, ctx) {
+function planToolSpan(sessionMeta, tc, seed, parentSpanId, traceId, ctx) {
 	const attrs = { "traceroot.span.type": "TOOL" };
 	commonTrace(attrs, sessionMeta, ctx);
 	attrs["traceroot.span.input"] = str(tc.args, ctx.maxChars);
@@ -32064,7 +32066,7 @@ function planToolSpan(sessionMeta, tc, parentSpanId, traceId, ctx) {
 	if (tc.error !== void 0) meta["error"] = tc.error;
 	if (Object.keys(meta).length > 0) attrs["traceroot.span.metadata"] = JSON.stringify(meta);
 	return {
-		spanId: makeSpanId(tc.callId),
+		spanId: makeSpanId(seed + tc.callId),
 		parentSpanId,
 		traceId,
 		kind: "TOOL",
@@ -32097,6 +32099,63 @@ function emitSpan(tracing, s) {
 		kind: KIND[s.kind],
 		attributes: s.attributes
 	}, ctx).end(s.endTime);
+}
+
+//#endregion
+//#region src/subagents.ts
+/**
+* Walk the Codex sessions directory for a rollout file named
+* `rollout-<ts>-<threadId>.jsonl`.  Returns the first match or undefined.
+* Fail-soft: returns undefined on any fs error.
+*
+* To bound cost we scan only the newest ~3 day-directories under
+* sessions/YYYY/MM/DD rather than the full tree.
+*/
+async function findSubagentRollout(threadId, codexHome$1) {
+	try {
+		const home = codexHome$1 ?? process.env["CODEX_HOME"] ?? path.join(os$2.homedir(), ".codex");
+		const dayDirs = await collectRecentDayDirs(path.join(home, "sessions"), 3);
+		for (const dayDir of dayDirs) {
+			const entries = await fs.readdir(dayDir).catch(() => []);
+			for (const name of entries) if (name.endsWith(`-${threadId}.jsonl`)) return path.join(dayDir, name);
+		}
+		return;
+	} catch {
+		return;
+	}
+}
+/** Return up to `max` most-recent day-level dirs under sessionsRoot/YYYY/MM/DD. */
+async function collectRecentDayDirs(sessionsRoot, max) {
+	const result = [];
+	let years;
+	try {
+		years = (await fs.readdir(sessionsRoot)).sort().reverse();
+	} catch {
+		return result;
+	}
+	for (const year of years) {
+		const yearDir = path.join(sessionsRoot, year);
+		let months;
+		try {
+			months = (await fs.readdir(yearDir)).sort().reverse();
+		} catch {
+			continue;
+		}
+		for (const month of months) {
+			const monthDir = path.join(yearDir, month);
+			let days;
+			try {
+				days = (await fs.readdir(monthDir)).sort().reverse();
+			} catch {
+				continue;
+			}
+			for (const day of days) {
+				result.push(path.join(monthDir, day));
+				if (result.length >= max) return result;
+			}
+		}
+	}
+	return result;
 }
 
 //#endregion
@@ -32187,6 +32246,7 @@ function parseSession(lines) {
 						endTime: at,
 						steps: [],
 						subagentThreadIds: [],
+						subagents: [],
 						completed: false,
 						aborted: false
 					};
@@ -32214,7 +32274,12 @@ function parseSession(lines) {
 					}
 					break;
 				default:
-					if (turn && typeof p.new_thread_id === "string") turn.subagentThreadIds.push(p.new_thread_id);
+					if (turn && typeof p.new_thread_id === "string") {
+						turn.subagentThreadIds.push(p.new_thread_id);
+						const ref = { threadId: p.new_thread_id };
+						if (typeof p.call_id === "string") ref.spawnCallId = p.call_id;
+						(turn.subagents ??= []).push(ref);
+					}
 					if (turn && p.type.endsWith("_end") && typeof p.call_id === "string") {
 						const tc = toolsByCallId.get(p.call_id);
 						if (tc) {
@@ -32268,6 +32333,45 @@ function parseSession(lines) {
 
 //#endregion
 //#region src/emit.ts
+const STACK_GUARD = 32;
+/** Emit all complete, not-yet-seen spans for `turn` and recurse into its subagents. */
+async function emitTurnTree(sessionMeta, turn, ctx, opts, visited, depth, tracing, already, emittedIds, deps) {
+	let n = 0;
+	for (const span of planTurnSpans(sessionMeta, turn, ctx, opts)) {
+		if (!span.complete || already.has(span.spanId)) continue;
+		emitSpan(tracing, span);
+		emittedIds.push(span.spanId);
+		already.add(span.spanId);
+		n++;
+	}
+	if (depth >= STACK_GUARD) {
+		debugLog(`subagent recursion hit STACK_GUARD at depth ${depth}; stopping`);
+		return n;
+	}
+	const parentSeed = opts.seedPrefix ?? "";
+	const traceId = opts.traceId ?? makeTraceId(sessionMeta.sessionId, turn.turnId ?? "");
+	for (const sub of turn.subagents ?? []) {
+		if (!sub.spawnCallId) continue;
+		if (visited.has(sub.threadId)) continue;
+		visited.add(sub.threadId);
+		const childPath = await deps.findSubagent(sub.threadId);
+		if (!childPath) continue;
+		let childLines;
+		try {
+			childLines = await readRollout(childPath);
+		} catch {
+			continue;
+		}
+		const child = parseSession(childLines);
+		const childOpts = {
+			traceId,
+			rootParentSpanId: makeSpanId(parentSeed + sub.spawnCallId),
+			seedPrefix: sub.threadId + ":"
+		};
+		for (const childTurn of child.turns) n += await emitTurnTree(child.sessionMeta, childTurn, ctx, childOpts, visited, depth + 1, tracing, already, emittedIds, deps);
+	}
+	return n;
+}
 async function dispatch(hook, config, deps) {
 	const transcript = hook.transcript_path;
 	if (!transcript) {
@@ -32276,6 +32380,7 @@ async function dispatch(hook, config, deps) {
 	}
 	const buildTracingFn = deps?.buildTracing ?? buildTracing;
 	const getGit = deps?.getGit ?? getGitContext;
+	const findSubagentFn = deps?.findSubagent ?? findSubagentRollout;
 	const { sessionMeta, turns } = parseSession(await readRollout(transcript));
 	const git = await getGit(sessionMeta.cwd ?? hook.cwd ?? process.cwd()).catch(() => ({}));
 	const ctx = {
@@ -32288,14 +32393,14 @@ async function dispatch(hook, config, deps) {
 	const tracing = buildTracingFn(config);
 	let emitted = 0;
 	const emittedIds = [];
+	const visited = /* @__PURE__ */ new Set();
+	const resolvedDeps = {
+		buildTracing: buildTracingFn,
+		getGit,
+		findSubagent: findSubagentFn
+	};
 	try {
-		for (const turn of turns) for (const span of planTurnSpans(sessionMeta, turn, ctx)) {
-			if (!span.complete || already.has(span.spanId)) continue;
-			emitSpan(tracing, span);
-			emittedIds.push(span.spanId);
-			already.add(span.spanId);
-			emitted += 1;
-		}
+		for (const turn of turns) emitted += await emitTurnTree(sessionMeta, turn, ctx, {}, visited, 0, tracing, already, emittedIds, resolvedDeps);
 	} finally {
 		await tracing.shutdown();
 	}
