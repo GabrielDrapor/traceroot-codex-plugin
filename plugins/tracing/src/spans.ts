@@ -27,7 +27,14 @@ export type EmittableSpan = {
 const str = (v: unknown, max: number): string =>
   truncate(typeof v === "string" ? v : JSON.stringify(v ?? ""), max);
 
+// Identifies this plugin as the emitting SDK (shown in the Traceroot UI), the
+// same way the Claude Code plugin sets traceroot.sdk.name/version.
+const SDK_NAME = "traceroot-codex-plugin";
+const SDK_VERSION = "0.1.0";
+
 function commonTrace(attrs: Record<string, string | number>, sessionMeta: SessionMeta, ctx: EmitCtx): void {
+  attrs["traceroot.sdk.name"] = SDK_NAME;
+  attrs["traceroot.sdk.version"] = SDK_VERSION;
   // Child subagent spans intentionally carry the CHILD session id here (sessionMeta is
   // the child's own SessionMeta). The trace still groups correctly because the backend
   // keys a trace's session off the ROOT (parent) span, not the children. A future

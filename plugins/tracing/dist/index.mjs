@@ -31885,15 +31885,15 @@ var PrimedIdGenerator = class {
 
 //#endregion
 //#region src/exporter.ts
-const SDK_NAME = "traceroot-codex-plugin";
-const SDK_VERSION = "0.1.0";
+const SDK_NAME$1 = "traceroot-codex-plugin";
+const SDK_VERSION$1 = "0.1.0";
 function buildTracingWith(processor, idGen) {
 	const provider = new import_src$2.NodeTracerProvider({
 		idGenerator: idGen,
 		spanProcessors: [processor]
 	});
 	return {
-		tracer: provider.getTracer(SDK_NAME, SDK_VERSION),
+		tracer: provider.getTracer(SDK_NAME$1, SDK_VERSION$1),
 		idGen,
 		shutdown: async () => {
 			await provider.forceFlush();
@@ -31906,8 +31906,8 @@ function buildTracing(config) {
 		url: `${config.hostUrl}/api/v1/public/traces`,
 		headers: {
 			Authorization: `Bearer ${config.apiKey ?? ""}`,
-			"x-traceroot-sdk-name": SDK_NAME,
-			"x-traceroot-sdk-version": SDK_VERSION
+			"x-traceroot-sdk-name": SDK_NAME$1,
+			"x-traceroot-sdk-version": SDK_VERSION$1
 		},
 		compression: "gzip"
 	}), {
@@ -32002,7 +32002,11 @@ function truncate(s, max) {
 //#region src/spans.ts
 init_esm$2();
 const str = (v, max) => truncate(typeof v === "string" ? v : JSON.stringify(v ?? ""), max);
+const SDK_NAME = "traceroot-codex-plugin";
+const SDK_VERSION = "0.1.0";
 function commonTrace(attrs, sessionMeta, ctx) {
+	attrs["traceroot.sdk.name"] = SDK_NAME;
+	attrs["traceroot.sdk.version"] = SDK_VERSION;
 	attrs["traceroot.trace.session_id"] = sessionMeta.sessionId;
 	if (ctx.userId) attrs["traceroot.trace.user_id"] = ctx.userId;
 	if (ctx.environment) attrs["traceroot.environment"] = ctx.environment;
