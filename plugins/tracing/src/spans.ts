@@ -6,12 +6,23 @@ import { mapUsage } from "./tokens.js";
 import type { ModelStep, SessionMeta, ToolCall, Turn } from "./types.js";
 import { truncate } from "./util.js";
 
+// The trace title. Used as the root span name AND as path[0] on every span so
+// the trace reads as "Codex Turn" even before the root span exists (see below).
+export const ROOT_NAME = "Codex Turn";
+
 export type EmitCtx = {
   environment?: string;
   userId?: string;
   git?: { repo?: string; ref?: string };
   maxChars: number;
+  // True only on the terminal Stop hook (the turn is ending). The root span is
+  // emitted only when the turn ends, so a still-running turn has NO completed
+  // root in ClickHouse — which is how the backend's live-stream detector knows
+  // the trace is in progress and keeps streaming (matching the SDK's model).
+  turnEnding?: boolean;
 };
+
+type SpanAttrs = Record<string, string | number | string[]>;
 
 export type EmittableSpan = {
   spanId: string;
@@ -21,14 +32,14 @@ export type EmittableSpan = {
   name: string;
   startTime: number;
   endTime: number;
-  attributes: Record<string, string | number>;
+  attributes: SpanAttrs;
   complete: boolean;
 };
 
 const str = (v: unknown, max: number): string =>
   truncate(typeof v === "string" ? v : JSON.stringify(v ?? ""), max);
 
-function commonTrace(attrs: Record<string, string | number>, sessionMeta: SessionMeta, ctx: EmitCtx): void {
+function commonTrace(attrs: SpanAttrs, sessionMeta: SessionMeta, ctx: EmitCtx): void {
   attrs["traceroot.sdk.name"] = SDK_NAME;
   attrs["traceroot.sdk.version"] = SDK_VERSION;
   // Child subagent spans intentionally carry the CHILD session id here (sessionMeta is
@@ -57,7 +68,7 @@ export function planTurnSpans(sessionMeta: SessionMeta, turn: Turn, ctx: EmitCtx
   const out: EmittableSpan[] = [];
 
   // Root AGENT span (trace-level attrs live here).
-  const rootAttrs: Record<string, string | number> = { "traceroot.span.type": "AGENT" };
+  const rootAttrs: SpanAttrs = { "traceroot.span.type": "AGENT", "traceroot.span.path": [ROOT_NAME] };
   commonTrace(rootAttrs, sessionMeta, ctx);
   if (turn.userInput) rootAttrs["traceroot.span.input"] = str(turn.userInput, ctx.maxChars);
   if (turn.finalOutput) rootAttrs["traceroot.span.output"] = str(turn.finalOutput, ctx.maxChars);
@@ -71,14 +82,31 @@ export function planTurnSpans(sessionMeta: SessionMeta, turn: Turn, ctx: EmitCtx
   }));
   if (ctx.git?.repo) rootAttrs["traceroot.git.repo"] = ctx.git.repo;
   if (ctx.git?.ref) rootAttrs["traceroot.git.ref"] = ctx.git.ref;
+  // Root end = the latest activity in the turn, not just the task_complete time.
+  // turn.endTime only advances on task_complete, so a turn that was aborted or
+  // snapshotted live (no task_complete) would have endTime === startTime and
+  // render as a 0ms bar. Cover the turn's own steps and tool calls (including
+  // wait_agent, which ends when a spawned subagent finishes) so the root always
+  // spans its children — and grows correctly across live hooks.
+  let rootEnd = turn.endTime;
+  for (const step of turn.steps) {
+    if (step.endTime > rootEnd) rootEnd = step.endTime;
+    for (const tc of step.toolCalls) {
+      if (tc.endTime !== undefined && tc.endTime > rootEnd) rootEnd = tc.endTime;
+    }
+  }
   out.push({
     spanId: rootId, parentSpanId: rootParentSpanId, traceId, kind: "AGENT",
-    name: "Codex Turn", startTime: turn.startTime, endTime: turn.endTime,
+    name: ROOT_NAME, startTime: turn.startTime, endTime: rootEnd,
     attributes: rootAttrs,
-    // The trace root (no parent) is emittable immediately so the trace is named
-    // "Codex Turn" from the first live hook; emit.ts re-emits it to refine
-    // end/output. Subagent roots stay gated on completion.
-    complete: rootParentSpanId === null ? true : turn.completed,
+    // The root is emitted only when the turn ENDS (task_complete, or the terminal
+    // Stop hook signalled via ctx.turnEnding) — never mid-turn. A completed root in
+    // ClickHouse is the backend's "trace is done" signal, so emitting it early would
+    // close the live SSE stream on the first hook (the trace would look finished and
+    // stop updating until refresh). Deferring it keeps the trace live while the turn
+    // runs; meanwhile traceroot.span.path keeps the title "Codex Turn". Subagent roots
+    // (rootParentSpanId !== null) stay gated on their own completion.
+    complete: rootParentSpanId === null ? (turn.completed || !!ctx.turnEnding) : turn.completed,
   });
 
   // LLM-step input is the user prompt (first step) or the prior step's tool
@@ -117,7 +145,13 @@ function planStepSpan(
   sessionMeta: SessionMeta, turn: Turn, step: ModelStep,
   spanId: string, parentSpanId: string, traceId: string, ctx: EmitCtx, input: string | undefined,
 ): EmittableSpan {
-  const attrs: Record<string, string | number> = { "traceroot.span.type": "LLM" };
+  const attrs: SpanAttrs = {
+    "traceroot.span.type": "LLM",
+    // path[0] = ROOT_NAME so the trace title stays "Codex Turn" while the root
+    // span is still deferred (the backend names the trace from the shallowest
+    // span's path[0] until the real root arrives).
+    "traceroot.span.path": [ROOT_NAME, turn.model ?? "model"],
+  };
   commonTrace(attrs, sessionMeta, ctx);
   if (turn.model) attrs["traceroot.llm.model"] = turn.model;
   if (input) attrs["traceroot.span.input"] = truncate(input, ctx.maxChars);
@@ -135,7 +169,10 @@ function planStepSpan(
 function planToolSpan(
   sessionMeta: SessionMeta, tc: ToolCall, seed: string, parentSpanId: string, traceId: string, ctx: EmitCtx,
 ): EmittableSpan {
-  const attrs: Record<string, string | number> = { "traceroot.span.type": "TOOL" };
+  const attrs: SpanAttrs = {
+    "traceroot.span.type": "TOOL",
+    "traceroot.span.path": [ROOT_NAME, tc.name],
+  };
   commonTrace(attrs, sessionMeta, ctx);
   attrs["traceroot.span.input"] = str(tc.args, ctx.maxChars);
   if (tc.output !== undefined) attrs["traceroot.span.output"] = str(tc.output, ctx.maxChars);

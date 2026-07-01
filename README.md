@@ -4,14 +4,23 @@ Trace OpenAI Codex sessions to [TraceRoot](https://traceroot.ai). Every query be
 
 ## Install
 
+Add the marketplace, then install the plugin from it:
+
 ```bash
 codex plugin marketplace add traceroot-ai/traceroot-codex-plugin
+codex plugin add tracing@traceroot-codex-plugin
 ```
 
-Enable it in `~/.codex/config.toml`:
+Enable Codex hooks (the plugin runs as a hook):
+
+```bash
+codex features enable hooks
+```
+
+This writes `features.hooks = true` to `~/.codex/config.toml`. The `codex plugin add` step above also enables the plugin there:
 
 ```toml
-plugin_hooks = true
+features.hooks = true
 
 [plugins."tracing@traceroot-codex-plugin"]
 enabled = true

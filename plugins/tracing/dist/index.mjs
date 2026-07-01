@@ -32004,6 +32004,7 @@ function mapUsage(u) {
 //#endregion
 //#region src/spans.ts
 init_esm$2();
+const ROOT_NAME = "Codex Turn";
 const str = (v, max) => truncate(typeof v === "string" ? v : JSON.stringify(v ?? ""), max);
 function commonTrace(attrs, sessionMeta, ctx) {
 	attrs["traceroot.sdk.name"] = SDK_NAME;
@@ -32019,7 +32020,10 @@ function planTurnSpans(sessionMeta, turn, ctx, opts) {
 	const rootId = makeSpanId(seed + turn.turnId + ":root");
 	const rootParentSpanId = opts?.rootParentSpanId !== void 0 ? opts.rootParentSpanId : null;
 	const out = [];
-	const rootAttrs = { "traceroot.span.type": "AGENT" };
+	const rootAttrs = {
+		"traceroot.span.type": "AGENT",
+		"traceroot.span.path": [ROOT_NAME]
+	};
 	commonTrace(rootAttrs, sessionMeta, ctx);
 	if (turn.userInput) rootAttrs["traceroot.span.input"] = str(turn.userInput, ctx.maxChars);
 	if (turn.finalOutput) rootAttrs["traceroot.span.output"] = str(turn.finalOutput, ctx.maxChars);
@@ -32033,16 +32037,21 @@ function planTurnSpans(sessionMeta, turn, ctx, opts) {
 	}));
 	if (ctx.git?.repo) rootAttrs["traceroot.git.repo"] = ctx.git.repo;
 	if (ctx.git?.ref) rootAttrs["traceroot.git.ref"] = ctx.git.ref;
+	let rootEnd = turn.endTime;
+	for (const step of turn.steps) {
+		if (step.endTime > rootEnd) rootEnd = step.endTime;
+		for (const tc of step.toolCalls) if (tc.endTime !== void 0 && tc.endTime > rootEnd) rootEnd = tc.endTime;
+	}
 	out.push({
 		spanId: rootId,
 		parentSpanId: rootParentSpanId,
 		traceId,
 		kind: "AGENT",
-		name: "Codex Turn",
+		name: ROOT_NAME,
 		startTime: turn.startTime,
-		endTime: turn.endTime,
+		endTime: rootEnd,
 		attributes: rootAttrs,
-		complete: rootParentSpanId === null ? true : turn.completed
+		complete: rootParentSpanId === null ? turn.completed || !!ctx.turnEnding : turn.completed
 	});
 	let prevToolResults;
 	for (const step of turn.steps) {
@@ -32075,7 +32084,10 @@ function buildStepOutput(step, max) {
 	return truncate(JSON.stringify(o), max);
 }
 function planStepSpan(sessionMeta, turn, step, spanId, parentSpanId, traceId, ctx, input) {
-	const attrs = { "traceroot.span.type": "LLM" };
+	const attrs = {
+		"traceroot.span.type": "LLM",
+		"traceroot.span.path": [ROOT_NAME, turn.model ?? "model"]
+	};
 	commonTrace(attrs, sessionMeta, ctx);
 	if (turn.model) attrs["traceroot.llm.model"] = turn.model;
 	if (input) attrs["traceroot.span.input"] = truncate(input, ctx.maxChars);
@@ -32096,7 +32108,10 @@ function planStepSpan(sessionMeta, turn, step, spanId, parentSpanId, traceId, ct
 	};
 }
 function planToolSpan(sessionMeta, tc, seed, parentSpanId, traceId, ctx) {
-	const attrs = { "traceroot.span.type": "TOOL" };
+	const attrs = {
+		"traceroot.span.type": "TOOL",
+		"traceroot.span.path": [ROOT_NAME, tc.name]
+	};
 	commonTrace(attrs, sessionMeta, ctx);
 	attrs["traceroot.span.input"] = str(tc.args, ctx.maxChars);
 	if (tc.output !== void 0) attrs["traceroot.span.output"] = str(tc.output, ctx.maxChars);
@@ -32312,6 +32327,9 @@ function parseRollout(lines) {
 				case "user_message":
 					if (turn && typeof p.message === "string") turn.userInput = p.message;
 					break;
+				case "agent_message":
+					if (turn && typeof p.message === "string") turn.finalOutput = p.message;
+					break;
 				case "token_count":
 					if (turn && p.info?.last_token_usage) {
 						const s = ensureStep(turn, at);
@@ -32325,7 +32343,7 @@ function parseRollout(lines) {
 						turn.completed = true;
 						turn.endTime = at;
 						const lastText = [...turn.steps].reverse().find((s) => s.text)?.text;
-						turn.finalOutput = p.last_agent_message ?? lastText ?? void 0;
+						turn.finalOutput = p.last_agent_message ?? turn.finalOutput ?? lastText ?? void 0;
 					}
 					break;
 				default:
@@ -32459,6 +32477,7 @@ async function dispatch(hook, config, deps) {
 	const buildTracingFn = deps?.buildTracing ?? buildTracing;
 	const getGit = deps?.getGit ?? getGitContext;
 	const findSubagentFn = deps?.findSubagent ?? locateSubagentRollout;
+	const turnEnding = hook.hook_event_name === "Stop";
 	const { sessionMeta, turns } = parseRollout(await readRollout(transcript));
 	if (sessionMeta.threadSource === "subagent" || sessionMeta.parentThreadId) {
 		debugLog(`subagent session ${sessionMeta.sessionId}; skipping standalone emit (nested under parent)`);
@@ -32469,7 +32488,8 @@ async function dispatch(hook, config, deps) {
 		environment: config.environment,
 		userId: config.userId,
 		git,
-		maxChars: config.maxChars
+		maxChars: config.maxChars,
+		turnEnding
 	};
 	const already = await loadEmittedSpanIds(transcript);
 	const tracing = buildTracingFn(config);
