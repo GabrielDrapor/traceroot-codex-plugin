@@ -50,7 +50,7 @@ describe("dispatch", () => {
     expect(r2.emitted).toBe(1);
   });
 
-  it("live: trace root + completed tool/llm emit before the turn closes; root refreshes on completion", async () => {
+  it("live: completed LLM/TOOL stream mid-turn with NO root (trace stays live); Stop emits the root", async () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), "tr-live-"));
     const transcript = path.join(dir, "rollout.jsonl");
     await fs.copyFile(path.join(here, "fixtures", "rollout-inprogress.jsonl"), transcript);
@@ -66,19 +66,19 @@ describe("dispatch", () => {
       getGit: async () => ({}),
     };
 
-    const r1 = await dispatch({ transcript_path: transcript }, config, deps);
-    // Trace root (named "Codex Turn") emits immediately for live naming, plus the
-    // already-complete LLM step and its TOOL — before the turn closes.
-    expect(r1.emitted).toBe(3);
+    // Mid-turn PostToolUse hook: the already-complete LLM step + its TOOL emit,
+    // but the root does NOT — so ClickHouse holds no completed root and the
+    // backend keeps the live SSE stream open (the trace updates without refresh).
+    const r1 = await dispatch({ transcript_path: transcript, hook_event_name: "PostToolUse" }, config, deps);
+    expect(r1.emitted).toBe(2);
     expect(mem.getFinishedSpans().map((s) => s.attributes["traceroot.span.type"]).sort())
-      .toEqual(["AGENT", "LLM", "TOOL"]);
+      .toEqual(["LLM", "TOOL"]);
 
-    // Now the turn completes: append task_complete and re-run. The root re-emits
-    // (refreshed end + finalOutput); LLM/TOOL already emitted (sidecar dedup).
-    await fs.appendFile(transcript,
-      '{"timestamp":"2026-06-23T23:21:36.100Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","last_agent_message":"done","completed_at":1782256896}}\n');
-    const r2 = await dispatch({ transcript_path: transcript }, config, deps);
-    expect(r2.emitted).toBe(1); // the AGENT root re-emitted
+    // The terminal Stop hook ends the turn: the root emits (even though this
+    // in-progress rollout never got a task_complete), which signals trace_complete.
+    const r2 = await dispatch({ transcript_path: transcript, hook_event_name: "Stop" }, config, deps);
+    expect(r2.emitted).toBe(1);
+    expect(mem.getFinishedSpans().filter((s) => s.attributes["traceroot.span.type"] === "AGENT")).toHaveLength(1);
   });
 
   it("skips standalone emission for a subagent session (it nests under its parent)", async () => {

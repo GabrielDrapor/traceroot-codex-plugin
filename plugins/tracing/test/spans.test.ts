@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planTurnSpans } from "../src/spans.js";
+import { planTurnSpans, ROOT_NAME } from "../src/spans.js";
 import { makeSpanId, makeTraceId } from "../src/ids.js";
 import type { SessionMeta, ToolCall, Turn } from "../src/types.js";
 
@@ -71,6 +71,51 @@ describe("planTurnSpans", () => {
     expect(tool.attributes["traceroot.span.type"]).toBe("TOOL");
     expect(String(tool.attributes["traceroot.span.output"])).toContain("a.txt");
     expect(tool.complete).toBe(true);
+  });
+
+  it("every span carries traceroot.span.path with ROOT_NAME first (live trace title)", () => {
+    // While the root span is deferred, the backend titles the trace from the
+    // shallowest span's path[0] — so path[0] must be the root name on all spans.
+    for (const s of spans) {
+      const path = s.attributes["traceroot.span.path"];
+      expect(Array.isArray(path)).toBe(true);
+      expect((path as string[])[0]).toBe(ROOT_NAME);
+    }
+  });
+
+  // Part 1 — the root is emitted (complete) only when the turn ENDS, so a
+  // running turn leaves no completed root in ClickHouse and the live stream stays
+  // open. ctx.turnEnding (the Stop hook) forces it even without task_complete.
+  const rootComplete = (t: Turn, turnEnding: boolean) =>
+    planTurnSpans(sessionMeta, t, { ...ctx, turnEnding }).find((s) => s.kind === "AGENT")!.complete;
+
+  it("root is NOT complete mid-turn (not completed, not the Stop hook)", () => {
+    expect(rootComplete({ ...turn, completed: false }, false)).toBe(false);
+  });
+  it("root IS complete on the Stop hook even if task_complete was missed", () => {
+    expect(rootComplete({ ...turn, completed: false }, true)).toBe(true);
+  });
+  it("root IS complete when the turn completed cleanly", () => {
+    expect(rootComplete({ ...turn, completed: true }, false)).toBe(true);
+  });
+
+  // Regression: a turn with no task_complete (aborted / live snapshot) has
+  // endTime === startTime. The root must still span its latest child activity,
+  // not render as a 0ms bar.
+  it("root end covers latest child activity when the turn never completed", () => {
+    const incomplete: Turn = {
+      turnId: "turn-x", startTime: 1000, endTime: 1000, // never advanced (no task_complete)
+      completed: false, aborted: false, subagents: [],
+      steps: [{
+        index: 0, startTime: 1200, endTime: 1800, toolCalls: [
+          // e.g. wait_agent finishing when a subagent completes, long after start
+          { callId: "c", name: "wait_agent", args: {}, startTime: 1300, endTime: 9000 },
+        ],
+      }],
+    };
+    const root = planTurnSpans(sessionMeta, incomplete, ctx).find((s) => s.kind === "AGENT")!;
+    expect(root.startTime).toBe(1000);
+    expect(root.endTime).toBe(9000); // covers the latest tool end, not 1000
   });
 });
 

@@ -110,8 +110,17 @@ export async function dispatch(
   const getGit = deps?.getGit ?? getGitContext;
   const findSubagentFn = deps?.findSubagent ?? locateSubagentRollout;
 
-  const lines = await readRollout(transcript);
-  const { sessionMeta, turns } = parseRollout(lines);
+  // The Stop hook is the "turn is ending" signal — only then is the root span
+  // emitted (see planTurnSpans). Mid-turn PostToolUse hooks leave the root absent
+  // so the trace stays live. SubagentStop carries the PARENT transcript while the
+  // parent turn is still running, so it must NOT count as the parent turn ending.
+  // The Stop hook is the "turn is ending" signal — only then is the root span
+  // emitted (see planTurnSpans). Mid-turn PostToolUse hooks leave the root absent
+  // so the trace stays live. SubagentStop carries the PARENT transcript while the
+  // parent turn is still running, so it must NOT count as the parent turn ending.
+  const turnEnding = hook.hook_event_name === "Stop";
+
+  const { sessionMeta, turns } = parseRollout(await readRollout(transcript));
 
   // A subagent session is emitted NESTED under its parent's trace (via the
   // parent's spawn_agent tool). Codex fires PostToolUse/Stop on the subagent
@@ -126,7 +135,9 @@ export async function dispatch(
 
   const cwd = sessionMeta.cwd ?? hook.cwd ?? process.cwd();
   const git = await getGit(cwd).catch(() => ({}));
-  const ctx: EmitCtx = { environment: config.environment, userId: config.userId, git, maxChars: config.maxChars };
+  const ctx: EmitCtx = {
+    environment: config.environment, userId: config.userId, git, maxChars: config.maxChars, turnEnding,
+  };
 
   const already = await loadEmittedSpanIds(transcript);
   const tracing = buildTracingFn(config);

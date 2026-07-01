@@ -120,6 +120,14 @@ export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
         case "user_message":
           if (turn && typeof p.message === "string") turn.userInput = p.message;
           break;
+        case "agent_message":
+          // The agent's final message. Codex writes this BEFORE the terminal
+          // task_complete line (which lands just AFTER the Stop hook fires), so
+          // capturing the output here is what lets the root span carry the output
+          // on a live run — relying only on task_complete, our hook reads too early
+          // to see it. Last one wins.
+          if (turn && typeof p.message === "string") turn.finalOutput = p.message;
+          break;
         case "token_count":
           if (turn && p.info?.last_token_usage) {
             const s = ensureStep(turn, at);
@@ -133,7 +141,9 @@ export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
             turn.completed = true;
             turn.endTime = at;
             const lastText = [...turn.steps].reverse().find((s) => s.text)?.text;
-            turn.finalOutput = (p.last_agent_message ?? lastText) ?? undefined;
+            // Prefer an explicit last_agent_message; otherwise keep what the
+            // agent_message event already captured, then fall back to step text.
+            turn.finalOutput = (p.last_agent_message ?? turn.finalOutput ?? lastText) ?? undefined;
           }
           break;
         default:

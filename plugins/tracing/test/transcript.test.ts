@@ -55,6 +55,21 @@ describe("parseRollout", () => {
     expect(t.steps[0]!.text).toBeUndefined();
   });
 
+  it("captures final output from agent_message even without task_complete (live-read race)", () => {
+    // Codex writes agent_message BEFORE the terminal task_complete (which lands
+    // just after the Stop hook fires). finalOutput must come from agent_message
+    // so a live run's root span isn't empty. No task_complete line on purpose.
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      { timestamp: ts(102), type: "event_msg", payload: { type: "user_message", message: "hi" } },
+      { timestamp: ts(103), type: "event_msg", payload: { type: "agent_message", message: "Hey there" } },
+    ];
+    const { turns } = parseRollout(lines);
+    expect(turns[0]!.finalOutput).toBe("Hey there");
+    expect(turns[0]!.completed).toBe(false); // still not marked complete (no task_complete)
+  });
+
   it("enriches tool calls from *_end event_msg events", async () => {
     const lines = await readRollout(toolDetailFixture);
     const { turns } = parseRollout(lines);
