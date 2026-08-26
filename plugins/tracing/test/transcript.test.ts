@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { planTurnSpans } from "../src/spans.js";
 import { parseRollout, readRollout } from "../src/transcript.js";
 import type { RolloutLine } from "../src/types.js";
 
@@ -223,6 +224,43 @@ describe("parseRollout", () => {
     const { turns } = parseRollout(lines);
     expect(turns[0]!.finalOutput).toBe("Hey there");
     expect(turns[0]!.completed).toBe(false); // still not marked complete (no task_complete)
+  });
+
+  it("uses the final assistant response as root output before task_complete arrives", () => {
+    // Newer Codex versions can fire the Stop hook after the final assistant
+    // response_item but before task_complete, without emitting agent_message.
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      {
+        timestamp: ts(102),
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] },
+      },
+      {
+        timestamp: ts(103),
+        type: "response_item",
+        payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Checking now" }] },
+      },
+      {
+        timestamp: ts(104),
+        type: "event_msg",
+        payload: { type: "token_count", info: { last_token_usage: { input_tokens: 5 } } },
+      },
+      {
+        timestamp: ts(105),
+        type: "response_item",
+        payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Hey there" }] },
+      },
+    ];
+
+    const { sessionMeta, turns } = parseRollout(lines);
+    const turn = turns[0]!;
+    const root = planTurnSpans(sessionMeta, turn, { maxChars: 20_000, turnEnding: true })[0]!;
+
+    expect(turn.completed).toBe(false);
+    expect(turn.finalOutput).toBe("Hey there");
+    expect(root.attributes["traceroot.span.output"]).toBe("Hey there");
   });
 
   it("enriches tool calls from *_end event_msg events", async () => {

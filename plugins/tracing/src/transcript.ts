@@ -144,11 +144,9 @@ export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
           }
           break;
         case "agent_message":
-          // The agent's final message. Codex writes this BEFORE the terminal
-          // task_complete line (which lands just AFTER the Stop hook fires), so
-          // capturing the output here is what lets the root span carry the output
-          // on a live run — relying only on task_complete, our hook reads too early
-          // to see it. Last one wins.
+          // Older Codex versions emit this before task_complete. Keep it as a
+          // provisional final output for live reads; newer versions use the
+          // assistant response_item path handled below. Last one wins.
           if (turn && typeof p.message === "string") turn.finalOutput = p.message;
           break;
         case "token_count":
@@ -165,7 +163,7 @@ export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
             turn.endTime = at;
             const lastText = [...turn.steps].reverse().find((s) => s.text)?.text;
             // Prefer an explicit last_agent_message; otherwise keep what the
-            // agent_message event already captured, then fall back to step text.
+            // live message events already captured, then fall back to step text.
             turn.finalOutput = (p.last_agent_message ?? turn.finalOutput ?? lastText) ?? undefined;
           }
           break;
@@ -218,6 +216,11 @@ export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
           if (text && !isInjectedUserMessage(text)) turn.userInput ??= text;
         } else if (p.role !== "developer") {
           s.text = text;
+          // Newer Codex versions may fire the Stop hook after the final assistant
+          // response_item but before task_complete, without an agent_message event.
+          // Treat the latest non-empty assistant message as provisional final
+          // output so the root span is complete in that live-read window.
+          if (p.role === "assistant" && text) turn.finalOutput = text;
         }
       } else if (p.type === "function_call") {
         let args: unknown = p.arguments;

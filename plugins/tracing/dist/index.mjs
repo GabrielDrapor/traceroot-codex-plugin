@@ -32406,7 +32406,10 @@ function parseRollout(lines) {
 				const text = messageText(p.content);
 				if (p.role === "user") {
 					if (text && !isInjectedUserMessage(text)) turn.userInput ??= text;
-				} else if (p.role !== "developer") s.text = text;
+				} else if (p.role !== "developer") {
+					s.text = text;
+					if (p.role === "assistant" && text) turn.finalOutput = text;
+				}
 			} else if (p.type === "function_call") {
 				let args = p.arguments;
 				try {
