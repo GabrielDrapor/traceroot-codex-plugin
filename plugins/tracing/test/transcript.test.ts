@@ -39,6 +39,40 @@ describe("parseRollout", () => {
     expect(tc.endTime).toBeGreaterThan(tc.startTime);
   });
 
+  it("captures the latest non-empty user response_item as turn input", () => {
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      {
+        timestamp: ts(102),
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "workspace context" }] },
+      },
+      {
+        timestamp: ts(103),
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "list the files" }] },
+      },
+      {
+        timestamp: ts(104),
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "" }] },
+      },
+      {
+        timestamp: ts(105),
+        type: "response_item",
+        payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "two files" }] },
+      },
+      { timestamp: ts(106), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseRollout(lines);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]!.userInput).toBe("list the files");
+    expect(turns[0]!.finalOutput).toBe("two files");
+  });
+
   it("does not throw and leaves text undefined when message content is missing", () => {
     const lines: RolloutLine[] = [
       { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },

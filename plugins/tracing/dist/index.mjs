@@ -32386,7 +32386,10 @@ function parseRollout(lines) {
 			const s = ensureStep(turn, at);
 			if (p.type === "reasoning") s.reasoning = reasoningText(p);
 			else if (p.type === "message") {
-				if (p.role !== "developer" && p.role !== "user") s.text = messageText(p.content);
+				const text = messageText(p.content);
+				if (p.role === "user") {
+					if (text) turn.userInput = text;
+				} else if (p.role !== "developer") s.text = text;
 			} else if (p.type === "function_call") {
 				let args = p.arguments;
 				try {

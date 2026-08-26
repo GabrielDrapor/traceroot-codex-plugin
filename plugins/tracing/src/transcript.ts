@@ -187,7 +187,14 @@ export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
       if (p.type === "reasoning") {
         s.reasoning = reasoningText(p);
       } else if (p.type === "message") {
-        if (p.role !== "developer" && p.role !== "user") s.text = messageText(p.content);
+        const text = messageText(p.content);
+        if (p.role === "user") {
+          // Newer Codex rollouts emit prompts as response_item messages rather
+          // than event_msg/user_message. Last non-empty user message wins.
+          if (text) turn.userInput = text;
+        } else if (p.role !== "developer") {
+          s.text = text;
+        }
       } else if (p.type === "function_call") {
         let args: unknown = p.arguments;
         try { args = JSON.parse(p.arguments); } catch { /* keep string */ }
