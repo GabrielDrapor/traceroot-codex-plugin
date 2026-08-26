@@ -32256,6 +32256,23 @@ function messageText(content) {
 	const parts = content.filter((c) => typeof c?.text === "string").map((c) => c.text);
 	return parts.length ? parts.join("") : void 0;
 }
+const INJECTED_USER_MESSAGE_TAGS = new Set([
+	"environment_context",
+	"user_instructions",
+	"subagent_notification",
+	"user_shell_command",
+	"recommended_plugins",
+	"turn_aborted",
+	"knowledge-context",
+	"memory-context",
+	"memory-cli",
+	"activity-cli",
+	"skill"
+]);
+function isInjectedUserMessage(text) {
+	const tag = /^<([A-Za-z0-9_-]+)\b/.exec(text.trimStart())?.[1];
+	return tag !== void 0 && INJECTED_USER_MESSAGE_TAGS.has(tag);
+}
 /** Codex's spawn_agent tool returns {"agent_id":"<thread id>","nickname":"..."}. */
 function parseSpawnAgentId(output) {
 	let obj = output;
@@ -32325,7 +32342,7 @@ function parseRollout(lines) {
 					turns.push(turn);
 					break;
 				case "user_message":
-					if (turn && typeof p.message === "string") turn.userInput = p.message;
+					if (turn && typeof p.message === "string" && !isInjectedUserMessage(p.message)) turn.userInput ??= p.message;
 					break;
 				case "agent_message":
 					if (turn && typeof p.message === "string") turn.finalOutput = p.message;
@@ -32388,7 +32405,7 @@ function parseRollout(lines) {
 			else if (p.type === "message") {
 				const text = messageText(p.content);
 				if (p.role === "user") {
-					if (text) turn.userInput = text;
+					if (text && !isInjectedUserMessage(text)) turn.userInput ??= text;
 				} else if (p.role !== "developer") s.text = text;
 			} else if (p.type === "function_call") {
 				let args = p.arguments;

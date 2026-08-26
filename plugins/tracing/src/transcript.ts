@@ -56,6 +56,27 @@ function messageText(content: unknown): string | undefined {
   return parts.length ? parts.join("") : undefined;
 }
 
+// Codex and plugins reuse role:"user" for synthetic context blocks. These can
+// appear before or after the real prompt and must not become trace input.
+const INJECTED_USER_MESSAGE_TAGS = new Set([
+  "environment_context",
+  "user_instructions",
+  "subagent_notification",
+  "user_shell_command",
+  "recommended_plugins",
+  "turn_aborted",
+  "knowledge-context",
+  "memory-context",
+  "memory-cli",
+  "activity-cli",
+  "skill",
+]);
+
+function isInjectedUserMessage(text: string): boolean {
+  const tag = /^<([A-Za-z0-9_-]+)\b/.exec(text.trimStart())?.[1];
+  return tag !== undefined && INJECTED_USER_MESSAGE_TAGS.has(tag);
+}
+
 /** Codex's spawn_agent tool returns {"agent_id":"<thread id>","nickname":"..."}. */
 function parseSpawnAgentId(output: unknown): string | undefined {
   let obj: unknown = output;
@@ -118,7 +139,9 @@ export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
           turns.push(turn);
           break;
         case "user_message":
-          if (turn && typeof p.message === "string") turn.userInput = p.message;
+          if (turn && typeof p.message === "string" && !isInjectedUserMessage(p.message)) {
+            turn.userInput ??= p.message;
+          }
           break;
         case "agent_message":
           // The agent's final message. Codex writes this BEFORE the terminal
@@ -190,8 +213,9 @@ export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
         const text = messageText(p.content);
         if (p.role === "user") {
           // Newer Codex rollouts emit prompts as response_item messages rather
-          // than event_msg/user_message. Last non-empty user message wins.
-          if (text) turn.userInput = text;
+          // than event_msg/user_message. Synthetic user-role context can land
+          // on either side of the prompt, so keep the first real prompt only.
+          if (text && !isInjectedUserMessage(text)) turn.userInput ??= text;
         } else if (p.role !== "developer") {
           s.text = text;
         }

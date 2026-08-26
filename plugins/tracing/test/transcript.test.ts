@@ -39,14 +39,18 @@ describe("parseRollout", () => {
     expect(tc.endTime).toBeGreaterThan(tc.startTime);
   });
 
-  it("captures the latest non-empty user response_item as turn input", () => {
+  it("captures the user prompt from response items", () => {
     const lines: RolloutLine[] = [
       { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
       { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
       {
         timestamp: ts(102),
         type: "response_item",
-        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "workspace context" }] },
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "<environment_context>\n  <cwd>/repo</cwd>\n</environment_context>" }],
+        },
       },
       {
         timestamp: ts(103),
@@ -56,7 +60,11 @@ describe("parseRollout", () => {
       {
         timestamp: ts(104),
         type: "response_item",
-        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "" }] },
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "<environment_context>\n  <current_date>2026-08-26</current_date>\n</environment_context>" }],
+        },
       },
       {
         timestamp: ts(105),
@@ -71,6 +79,119 @@ describe("parseRollout", () => {
     expect(turns).toHaveLength(1);
     expect(turns[0]!.userInput).toBe("list the files");
     expect(turns[0]!.finalOutput).toBe("two files");
+  });
+
+  it.each([
+    "environment_context",
+    "user_instructions",
+    "subagent_notification",
+    "user_shell_command",
+    "recommended_plugins",
+    "turn_aborted",
+    "knowledge-context",
+    "memory-context",
+    "memory-cli",
+    "activity-cli",
+    "skill",
+  ])("leaves input undefined when the turn only contains an injected <%s> block", (tag) => {
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      {
+        timestamp: ts(102),
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: `<${tag}>injected</${tag}>` }],
+        },
+      },
+      { timestamp: ts(103), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseRollout(lines);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]!.userInput).toBeUndefined();
+  });
+
+  it("does not replace a legacy user prompt with injected response-item context", () => {
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      { timestamp: ts(102), type: "event_msg", payload: { type: "user_message", message: "fix the parser" } },
+      {
+        timestamp: ts(103),
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "<subagent_notification>{\"status\":\"completed\"}</subagent_notification>" }],
+        },
+      },
+      { timestamp: ts(104), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseRollout(lines);
+
+    expect(turns[0]!.userInput).toBe("fix the parser");
+  });
+
+  it("leaves legacy input undefined when user_message carries only injected context", () => {
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      {
+        timestamp: ts(102),
+        type: "event_msg",
+        payload: { type: "user_message", message: "<knowledge-context>injected</knowledge-context>" },
+      },
+      { timestamp: ts(103), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseRollout(lines);
+
+    expect(turns[0]!.userInput).toBeUndefined();
+  });
+
+  it("does not let later user-role context replace the first prompt", () => {
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      {
+        timestamp: ts(102),
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "fix the parser" }] },
+      },
+      {
+        timestamp: ts(103),
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "later user-role context" }] },
+      },
+      { timestamp: ts(104), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseRollout(lines);
+
+    expect(turns[0]!.userInput).toBe("fix the parser");
+  });
+
+  it("preserves image markers that prefix a real user prompt", () => {
+    const prompt = "<image name=[Image #1]></image>\nPlease inspect this screenshot";
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      {
+        timestamp: ts(102),
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: prompt }] },
+      },
+      { timestamp: ts(103), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseRollout(lines);
+
+    expect(turns[0]!.userInput).toBe(prompt);
   });
 
   it("does not throw and leaves text undefined when message content is missing", () => {
