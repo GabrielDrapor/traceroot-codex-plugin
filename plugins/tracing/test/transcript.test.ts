@@ -221,6 +221,28 @@ describe("parseRollout", () => {
     expect(turns[0]!.userInput).toBe(prompt);
   });
 
+  it("keeps a response-item fallback prompt that mentions a wrapper tag inline", () => {
+    const prompt = "why does <environment_context> appear in my traces?";
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      {
+        timestamp: ts(102),
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: prompt }],
+        },
+      },
+      { timestamp: ts(103), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseRollout(lines);
+
+    expect(turns[0]!.userInput).toBe(prompt);
+  });
+
   it("joins distinct authoritative prompts queued in the same turn", () => {
     const lines: RolloutLine[] = [
       { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },

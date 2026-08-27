@@ -81,11 +81,10 @@ function isInjectedUserMessage(text: string): boolean {
 function isInjectedFallbackText(text: string): boolean {
   if (isInjectedUserMessage(text)) return true;
   if (/^# AGENTS\.md instructions for\b/.test(text.trim())) return true;
-  // Modern Codex can fuse an AGENTS.md preamble and injected context into one
-  // user-role response item, so the wrapper is not necessarily at the start.
-  // Keep this aggressive check on the fallback path only: an authoritative
-  // user prompt may legitimately mention one of these tags.
-  return /<\/?(environment_context|user_instructions)\b/.test(text);
+  // Modern Codex can fuse a preamble and injected context into one user-role
+  // response item, so inspect structural wrapper lines anywhere in the text.
+  // Inline mentions remain valid fallback prompts.
+  return /(?:^|\n)[ \t]*<\/?(environment_context|user_instructions)\b/.test(text);
 }
 
 /** Codex's spawn_agent tool returns {"agent_id":"<thread id>","nickname":"..."}. */

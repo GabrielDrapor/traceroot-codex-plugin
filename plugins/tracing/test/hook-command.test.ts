@@ -16,21 +16,49 @@ async function makeTempDir(prefix: string): Promise<string> {
 
 function runShellCommand(
   command: string,
-  options: { cwd: string; env: NodeJS.ProcessEnv; input: string },
+  options: { cwd: string; env: NodeJS.ProcessEnv; input: string; timeoutMs?: number },
 ): Promise<{ code: number | null; stderr: string; stdout: string }> {
   return new Promise((resolve, reject) => {
+    const useProcessGroup = process.platform !== "win32";
     const child = spawn(command, {
       cwd: options.cwd,
       env: options.env,
+      detached: useProcessGroup,
       shell: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    let forceKill: ReturnType<typeof setTimeout> | undefined;
+
+    const terminate = (signal: NodeJS.Signals): void => {
+      if (process.platform === "win32" && child.pid) {
+        const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+        killer.unref();
+        return;
+      }
+      if (useProcessGroup && child.pid) {
+        try {
+          process.kill(-child.pid, signal);
+          return;
+        } catch {
+          // The group may already be gone; fall back to the direct child.
+        }
+      }
+      child.kill(signal);
+    };
+
     const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error("hook command timed out"));
-    }, 10_000);
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      timedOut = true;
+      terminate("SIGTERM");
+      forceKill = setTimeout(() => { terminate("SIGKILL"); }, 1_000);
+      forceKill.unref();
+    }, options.timeoutMs ?? 10_000);
 
     child.stdout.setEncoding("utf-8");
     child.stderr.setEncoding("utf-8");
@@ -38,10 +66,16 @@ function runShellCommand(
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.once("error", (error) => {
       clearTimeout(timeout);
+      if (forceKill) clearTimeout(forceKill);
       reject(error);
     });
     child.once("close", (code) => {
       clearTimeout(timeout);
+      if (forceKill) clearTimeout(forceKill);
+      if (timedOut) {
+        reject(new Error("hook command timed out"));
+        return;
+      }
       resolve({ code, stdout, stderr });
     });
     child.stdin.end(options.input);
@@ -101,5 +135,17 @@ describe("bundled hook command", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("");
+  });
+
+  it("terminates the shell process group when a hook command times out", async () => {
+    const sessionCwd = await makeTempDir("traceroot-timeout-");
+    const command = `${JSON.stringify(process.execPath)} -e "setInterval(() => {}, 1000)"`;
+
+    await expect(runShellCommand(command, {
+      cwd: sessionCwd,
+      env: { ...process.env },
+      input: "",
+      timeoutMs: 50,
+    })).rejects.toThrow("hook command timed out");
   });
 });

@@ -32276,7 +32276,7 @@ function isInjectedUserMessage(text) {
 function isInjectedFallbackText(text) {
 	if (isInjectedUserMessage(text)) return true;
 	if (/^# AGENTS\.md instructions for\b/.test(text.trim())) return true;
-	return /<\/?(environment_context|user_instructions)\b/.test(text);
+	return /(?:^|\n)[ \t]*<\/?(environment_context|user_instructions)\b/.test(text);
 }
 /** Codex's spawn_agent tool returns {"agent_id":"<thread id>","nickname":"..."}. */
 function parseSpawnAgentId(output) {
