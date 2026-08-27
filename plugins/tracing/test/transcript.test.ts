@@ -116,18 +116,136 @@ describe("parseRollout", () => {
     expect(turns[0]!.userInput).toBeUndefined();
   });
 
-  it("does not replace a legacy user prompt with injected response-item context", () => {
+  it("prefers an authoritative user_message over an earlier response-item fallback", () => {
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      {
+        timestamp: ts(102),
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "<image name=[Image #1]></image>[Image #1] fix the parser" }],
+        },
+      },
+      { timestamp: ts(103), type: "event_msg", payload: { type: "user_message", message: "[Image #1] fix the parser" } },
+      { timestamp: ts(104), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseRollout(lines);
+
+    expect(turns[0]!.userInput).toBe("[Image #1] fix the parser");
+  });
+
+  it("rejects an AGENTS.md-prefixed injected wrapper in the fallback path", () => {
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      {
+        timestamp: ts(102),
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{
+            type: "input_text",
+            text: "# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>repo rules</INSTRUCTIONS>\n\n<environment_context>cwd=/repo</environment_context>",
+          }],
+        },
+      },
+      { timestamp: ts(103), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseRollout(lines);
+
+    expect(turns[0]!.userInput).toBeUndefined();
+  });
+
+  it("uses the real response-item prompt after an AGENTS.md-prefixed wrapper", () => {
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      {
+        timestamp: ts(102),
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{
+            type: "input_text",
+            text: "# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>repo rules</INSTRUCTIONS>\n\n<environment_context>cwd=/repo</environment_context>",
+          }],
+        },
+      },
+      {
+        timestamp: ts(103),
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "fix the parser" }] },
+      },
+      { timestamp: ts(104), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseRollout(lines);
+
+    expect(turns[0]!.userInput).toBe("fix the parser");
+  });
+
+  it("keeps an authoritative prompt that merely mentions wrapper tags", () => {
+    const prompt = "why does <environment_context> appear in my traces?";
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      {
+        timestamp: ts(102),
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: prompt }],
+        },
+      },
+      {
+        timestamp: ts(103),
+        type: "event_msg",
+        payload: {
+          type: "item_completed",
+          item: { type: "UserMessage", content: [{ type: "text", text: prompt }] },
+        },
+      },
+      { timestamp: ts(104), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseRollout(lines);
+
+    expect(turns[0]!.userInput).toBe(prompt);
+  });
+
+  it("joins distinct authoritative prompts queued in the same turn", () => {
+    const lines: RolloutLine[] = [
+      { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
+      { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      { timestamp: ts(102), type: "event_msg", payload: { type: "user_message", message: "build it locally" } },
+      { timestamp: ts(103), type: "event_msg", payload: { type: "user_message", message: "delete node_modules before rerunning" } },
+      { timestamp: ts(104), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },
+    ];
+
+    const { turns } = parseRollout(lines);
+
+    expect(turns[0]!.userInput).toBe("build it locally\n\ndelete node_modules before rerunning");
+  });
+
+  it("deduplicates the same prompt across authoritative event formats", () => {
     const lines: RolloutLine[] = [
       { timestamp: ts(100), type: "session_meta", payload: { id: "sess-1" } },
       { timestamp: ts(101), type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
       { timestamp: ts(102), type: "event_msg", payload: { type: "user_message", message: "fix the parser" } },
       {
         timestamp: ts(103),
-        type: "response_item",
+        type: "event_msg",
         payload: {
-          type: "message",
-          role: "user",
-          content: [{ type: "input_text", text: "<subagent_notification>{\"status\":\"completed\"}</subagent_notification>" }],
+          type: "item_completed",
+          item: { type: "UserMessage", content: [{ type: "text", text: "fix the parser" }] },
         },
       },
       { timestamp: ts(104), type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } },

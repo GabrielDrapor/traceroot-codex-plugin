@@ -57,7 +57,8 @@ function messageText(content: unknown): string | undefined {
 }
 
 // Codex and plugins reuse role:"user" for synthetic context blocks. These can
-// appear before or after the real prompt and must not become trace input.
+// appear before or after the real prompt and must not become trace input. This
+// denylist is best-effort: third-party plugins may introduce new wrapper tags.
 const INJECTED_USER_MESSAGE_TAGS = new Set([
   "environment_context",
   "user_instructions",
@@ -77,6 +78,16 @@ function isInjectedUserMessage(text: string): boolean {
   return tag !== undefined && INJECTED_USER_MESSAGE_TAGS.has(tag);
 }
 
+function isInjectedFallbackText(text: string): boolean {
+  if (isInjectedUserMessage(text)) return true;
+  if (/^# AGENTS\.md instructions for\b/.test(text.trim())) return true;
+  // Modern Codex can fuse an AGENTS.md preamble and injected context into one
+  // user-role response item, so the wrapper is not necessarily at the start.
+  // Keep this aggressive check on the fallback path only: an authoritative
+  // user prompt may legitimately mention one of these tags.
+  return /<\/?(environment_context|user_instructions)\b/.test(text);
+}
+
 /** Codex's spawn_agent tool returns {"agent_id":"<thread id>","nickname":"..."}. */
 function parseSpawnAgentId(output: unknown): string | undefined {
   let obj: unknown = output;
@@ -93,6 +104,8 @@ export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
   let turn: Turn | undefined;
   let step: ModelStep | undefined;
   const toolsByCallId = new Map<string, ToolCall>();
+  const userInputFallback = new Map<Turn, string>();
+  const authoritativeUserInputs = new Map<Turn, Set<string>>();
   // call_ids of spawn_agent tool calls, so we can read the child thread id from
   // the matching function_call_output ({"agent_id": "..."}).
   const spawnAgentCallIds = new Set<string>();
@@ -103,6 +116,17 @@ export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
       t.steps.push(step);
     }
     return step;
+  };
+
+  const appendAuthoritativeUserInput = (t: Turn, text: string): void => {
+    let inputs = authoritativeUserInputs.get(t);
+    if (!inputs) {
+      inputs = new Set<string>();
+      authoritativeUserInputs.set(t, inputs);
+    }
+    if (inputs.has(text)) return;
+    inputs.add(text);
+    t.userInput = [...inputs].join("\n\n");
   };
 
   for (const line of lines) {
@@ -140,7 +164,15 @@ export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
           break;
         case "user_message":
           if (turn && typeof p.message === "string" && !isInjectedUserMessage(p.message)) {
-            turn.userInput ??= p.message;
+            appendAuthoritativeUserInput(turn, p.message);
+          }
+          break;
+        case "item_completed":
+          if (turn && p.item?.type === "UserMessage") {
+            // Current Codex versions emit the bare prompt in this structured
+            // event. It is authoritative; response_item/user is only fallback.
+            const text = messageText(p.item.content);
+            if (text) appendAuthoritativeUserInput(turn, text);
           }
           break;
         case "agent_message":
@@ -210,10 +242,12 @@ export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
       } else if (p.type === "message") {
         const text = messageText(p.content);
         if (p.role === "user") {
-          // Newer Codex rollouts emit prompts as response_item messages rather
-          // than event_msg/user_message. Synthetic user-role context can land
-          // on either side of the prompt, so keep the first real prompt only.
-          if (text && !isInjectedUserMessage(text)) turn.userInput ??= text;
+          // Some Codex versions expose the prompt only as a response item. Keep
+          // the first plausible prompt as fallback, but never let it shadow the
+          // clean user_message or item_completed/UserMessage representation.
+          if (text && !isInjectedFallbackText(text) && !userInputFallback.has(turn)) {
+            userInputFallback.set(turn, text);
+          }
         } else if (p.role !== "developer") {
           s.text = text;
           // Newer Codex versions may fire the Stop hook after the final assistant
@@ -243,6 +277,10 @@ export function parseRollout(lines: RolloutLine[]): { sessionMeta: SessionMeta; 
       continue;
     }
   }
+
+  // Resolve fallbacks after parsing so authoritative events win regardless of
+  // file order while incomplete turns remain usable by a live Stop hook.
+  for (const t of turns) t.userInput ??= userInputFallback.get(t);
 
   return { sessionMeta, turns };
 }
